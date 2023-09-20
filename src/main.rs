@@ -5,6 +5,7 @@ use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::env::args;
 use std::fs::File;
+use std::io::BufReader;
 use std::io::{Read, Result, Write};
 use std::iter::zip;
 use std::process::exit;
@@ -20,7 +21,10 @@ fn get_fs(ring: &str) -> Result<f64> {
     let port: u16 = match ring.to_lowercase().as_str() {
         "r1" => 12001,
         "r3" => 32001,
-        _ => panic!("Unknown ring: {}", ring),
+        _ => {
+            eprintln!("Could not understand the `--ring` flag; `{ring}`");
+            exit(1);
+        }
     };
     let cmd = "CF\n";
 
@@ -40,17 +44,29 @@ fn get_fs(ring: &str) -> Result<f64> {
 }
 
 fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result<Vec<BpmData>> {
+    println!(
+        "{}: entered get_archived_data function",
+        Local::now().timestamp_millis()
+    );
     const HOST: &str = "fa";
     let port: u16;
     let bpm_range: Vec<String>;
     let bpm_cmd_str: String;
 
-    let start_dt = Local
-        .datetime_from_str(start_string, "%Y-%m-%dT%H:%M:%S%.f")
-        .unwrap();
-    let end_dt = Local
-        .datetime_from_str(end_string, "%Y-%m-%dT%H:%M:%S%.f")
-        .unwrap();
+    let start_dt = match Local.datetime_from_str(&start_string, "%Y-%m-%dT%H:%M:%S%.f") {
+        Ok(dt) => dt,
+        _ => {
+            eprintln!("Could not understand the `--start` flag; `{start_string}`");
+            exit(1);
+        }
+    };
+    let end_dt = match Local.datetime_from_str(&end_string, "%Y-%m-%dT%H:%M:%S%.f") {
+        Ok(dt) => dt,
+        _ => {
+            eprintln!("Could not understand the `--end` flag; `{end_string}`");
+            exit(1);
+        }
+    };
     let start_seconds = start_dt.timestamp();
     let start_nanos = start_dt.timestamp_nanos() - start_seconds * 1_000_000_000;
     let end_seconds = end_dt.timestamp();
@@ -79,19 +95,37 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
         "RFM{}S{}.{:09}ES{}.{:09}N\n",
         bpm_cmd_str, start_seconds, start_nanos, end_seconds, end_nanos,
     );
-    println!("Sending the command: '{cmd_str}'");
+    println!(
+        "{}: Sending the command: '{}'",
+        Local::now().timestamp_millis(),
+        cmd_str.trim()
+    );
 
     let mut checkbyte = [0u8; CHKBYTESIZE];
     let mut header = [0u8; HDRSIZE];
-    let mut buf = Vec::new();
+    // let mut buf = Vec::new();
+    let total_time = (end_dt.timestamp_nanos() - start_dt.timestamp_nanos()) / 1_000_000_000;
+    let mut buf = Vec::with_capacity(16222400 * total_time as usize);
 
     let mut stream = std::net::TcpStream::connect((HOST, port))?;
 
     stream.write_all(cmd_str.as_bytes())?;
+    println!(
+        "{}: Reading data from stream",
+        Local::now().timestamp_millis()
+    );
     stream.read_exact(&mut checkbyte)?;
     stream.read_exact(&mut header)?;
-    stream.read_to_end(&mut buf)?;
+    let mut reader = BufReader::new(&stream);
+    let read_bytes = reader.read_to_end(&mut buf)?;
+    // let read_bytes = stream.read_to_end(&mut buf)?;
+    println!(
+        "{}: Read {} bytes",
+        Local::now().timestamp_millis(),
+        read_bytes
+    );
 
+    println!("{}: Parsing data", Local::now().timestamp_millis());
     let mut values = Vec::new();
     for i in (0..buf.len()).step_by(DATSIZE) {
         let val = i32::from_ne_bytes((&buf[i..i + DATSIZE]).try_into().unwrap());
@@ -114,6 +148,7 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
         datasets.push(d);
     }
 
+    println!("{}: Returning parsed data", Local::now().timestamp_millis());
     Ok(datasets)
 }
 
@@ -140,15 +175,15 @@ fn main() {
             "-h" | "--help" => print_help(&exe_name),
             "--start" => match args.pop_front() {
                 Some(expr) => start_time = expr,
-                None => todo!(),
+                None => unreachable!("Code should never get here"),
             },
             "--end" => match args.pop_front() {
                 Some(expr) => end_time = expr,
-                None => todo!(),
+                None => unreachable!("Code should never get here"),
             },
             "--ring" => match args.pop_front() {
-                Some(expr) => ring = expr.to_lowercase(),
-                None => todo!(),
+                Some(expr) => ring = expr,
+                None => unreachable!("Code should never get here"),
             },
             e => {
                 eprintln!("{e}");
@@ -156,6 +191,14 @@ fn main() {
             }
         }
     }
+
+    let start_dt = match Local.datetime_from_str(&start_time, "%Y-%m-%dT%H:%M:%S%.f") {
+        Ok(dt) => dt,
+        _ => {
+            eprintln!("Could not understand the `--start` flag; `{start_time}`");
+            exit(1);
+        }
+    };
 
     let fs = match get_fs(&ring) {
         Ok(result) => result,
@@ -165,19 +208,14 @@ fn main() {
         }
     };
     let timestep_nanoseconds: f64 = 1_000_000_000f64 / fs;
-    let start_dt = Local
-        .datetime_from_str(&start_time, "%Y-%m-%dT%H:%M:%S%.f")
-        .unwrap();
-    println!("timestep_nanoseconds = {timestep_nanoseconds}");
-    println!("start_dt = {start_dt}");
-    println!(
-        "start_dt + timestep_nanoseconds = {}",
-        start_dt + Duration::nanoseconds(timestep_nanoseconds as i64)
-    );
 
     let data = match get_archived_data(&ring, &start_time, &end_time) {
         Ok(reply) => reply,
-        _ => todo!(),
+        _ => {
+            eprintln!("There was a problem getting data from the archiver.");
+            eprintln!("Are you within the MAXIV firewall?");
+            exit(1);
+        }
     };
 
     let mut filenum = 0;
@@ -186,7 +224,13 @@ fn main() {
         let fname = format!("bpm_{:03}.dat", filenum);
         println!("Writing file: {fname}");
         let mut file = File::create(fname).unwrap();
-        write!(file, "# FA data\n").unwrap();
+        write!(
+            file,
+            "# FA data for {} / BPM #{:03}\n",
+            ring.to_uppercase(),
+            filenum
+        )
+        .unwrap();
         write!(file, "# t, x, y\n").unwrap();
         for (x, y) in zip(&bpm.x, &bpm.y) {
             let timestamp =
