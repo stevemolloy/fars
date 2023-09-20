@@ -1,21 +1,42 @@
 use chrono::offset::TimeZone;
 use chrono::prelude::*;
 use chrono::Duration;
-use plotly::layout::Axis;
-use plotly::layout::AxisType;
-use plotly::Layout;
-use plotly::Plot;
-use plotly::Scatter;
 use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::env::args;
+use std::fs::File;
 use std::io::{Read, Result, Write};
+use std::iter::zip;
 use std::process::exit;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct BpmData {
     x: Vec<i32>,
     y: Vec<i32>,
+}
+
+fn get_fs(ring: &str) -> Result<f64> {
+    const HOST: &str = "fa";
+    let port: u16 = match ring.to_lowercase().as_str() {
+        "r1" => 12001,
+        "r3" => 32001,
+        _ => panic!("Unknown ring: {}", ring),
+    };
+    let cmd = "CF\n";
+
+    let mut buf = Vec::new();
+
+    let mut stream = std::net::TcpStream::connect((HOST, port))?;
+
+    stream.write_all(cmd.as_bytes())?;
+    stream.read_to_end(&mut buf)?;
+
+    let info = std::str::from_utf8(&buf).unwrap();
+
+    let infvec: Vec<&str> = info.split('\n').collect();
+    let fs = infvec[0].parse::<f64>().unwrap();
+
+    Ok(fs)
 }
 
 fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result<Vec<BpmData>> {
@@ -24,7 +45,6 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
     let bpm_range: Vec<String>;
     let bpm_cmd_str: String;
 
-    println!("{start_string}, {end_string}");
     let start_dt = Local
         .datetime_from_str(start_string, "%Y-%m-%dT%H:%M:%S%.f")
         .unwrap();
@@ -69,7 +89,6 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
 
     stream.write_all(cmd_str.as_bytes())?;
     stream.read_exact(&mut checkbyte)?;
-    // assert_eq!(checkbyte, [0]);
     stream.read_exact(&mut header)?;
     stream.read_to_end(&mut buf)?;
 
@@ -105,7 +124,8 @@ fn print_help(exe_name: &str) {
 fn main() {
     let mut args: VecDeque<String> = args().collect();
     let exe_name = args.pop_front().unwrap();
-    if args.is_empty() {
+    if args.len() != 6 {
+        println!("\nCould not find the correct number of arguments.");
         print_help(&exe_name);
         exit(1);
     }
@@ -137,44 +157,50 @@ fn main() {
         }
     }
 
-    if start_time.is_empty() | end_time.is_empty() | ring.is_empty() {
-        eprintln!("This must be called with all three arguments, as follows:");
-        print_help(&exe_name);
-        exit(1);
-    }
-
-    let dataset: Vec<BpmData>;
-    match get_archived_data(&ring, &start_time, &end_time) {
-        Ok(answer) => dataset = answer,
+    let fs = match get_fs(&ring) {
+        Ok(result) => result,
         Err(e) => {
             eprintln!("{e}");
             exit(1);
         }
-    }
-
-    let fs = 10073.698970;
+    };
     let timestep_nanoseconds: f64 = 1_000_000_000f64 / fs;
     let start_dt = Local
         .datetime_from_str(&start_time, "%Y-%m-%dT%H:%M:%S%.f")
         .unwrap();
+    println!("timestep_nanoseconds = {timestep_nanoseconds}");
+    println!("start_dt = {start_dt}");
+    println!(
+        "start_dt + timestep_nanoseconds = {}",
+        start_dt + Duration::nanoseconds(timestep_nanoseconds as i64)
+    );
 
-    let mut plot = Plot::new();
-    for ds in &dataset {
-        let time_axis: Vec<_> = (1..ds.x.len()).collect();
-        let trace = Scatter::new(
-            time_axis
-                .iter()
-                .map(|x| {
-                    start_dt + Duration::nanoseconds((*x as f64 * timestep_nanoseconds) as i64)
-                })
-                .collect(),
-            ds.x.clone(),
-        );
-        plot.add_trace(trace);
+    let data = match get_archived_data(&ring, &start_time, &end_time) {
+        Ok(reply) => reply,
+        _ => todo!(),
+    };
+
+    let mut filenum = 0;
+    for bpm in data {
+        let mut timestep = 0;
+        let fname = format!("bpm_{:03}.dat", filenum);
+        println!("Writing file: {fname}");
+        let mut file = File::create(fname).unwrap();
+        write!(file, "# FA data\n").unwrap();
+        write!(file, "# t, x, y\n").unwrap();
+        for (x, y) in zip(&bpm.x, &bpm.y) {
+            let timestamp =
+                start_dt + Duration::nanoseconds((timestep as f64 * timestep_nanoseconds) as i64);
+            write!(
+                file,
+                "{}, {}, {}\n",
+                timestamp.format("%Y-%m-%d_%H:%M:%S.%f"),
+                x,
+                y
+            )
+            .unwrap();
+            timestep += 1;
+        }
+        filenum += 1;
     }
-    let layout = Layout::new()
-        .title("x Positions".into())
-        .x_axis(Axis::new().type_(AxisType::Date));
-    plot.set_layout(layout);
-    plot.show();
 }

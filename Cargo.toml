@@ -6,4 +6,4 @@ edition = "2021"
 [dependencies]
 chrono = { version = "0.4.27", features = ["serde"] }
 help = "0.0.0"
-plotly = "0.8.4"
+rand = "0.8.5"
