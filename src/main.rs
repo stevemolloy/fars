@@ -222,7 +222,8 @@ fn main() {
     for bpm in data {
         let mut timestep = 0;
         let fname = format!("bpm_{:03}.dat", filenum);
-        println!("Writing file: {fname}");
+        print!("\rWriting file: {fname}");
+        let _ = std::io::stdout().flush();
         let mut file = File::create(fname).unwrap();
         write!(
             file,
@@ -247,4 +248,5 @@ fn main() {
         }
         filenum += 1;
     }
+    println!("\n{}: Done!", Local::now().timestamp_millis());
 }
