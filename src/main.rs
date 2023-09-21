@@ -249,6 +249,7 @@ fn write_bpmdata_to_file(
     let mut file = File::create(fname).unwrap();
     write!(file, "# FA data for BPM #{:03}\n", filenum).unwrap();
     write!(file, "# t, x, y\n").unwrap();
+
     let mut timestep = 0;
     for (x, y) in zip(&bpm.x, &bpm.y) {
         let timestamp =
