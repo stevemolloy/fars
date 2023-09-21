@@ -220,6 +220,10 @@ fn main() {
         }
     };
 
+    println!(
+        "\n{}: Writing to file. This can take some time for large datasets.",
+        Local::now().timestamp_millis()
+    );
     let mut filenum = 0;
     let mut thread_list = Vec::<JoinHandle<()>>::new();
     for bpm in data {
@@ -241,8 +245,8 @@ fn write_bpmdata_to_file(
     start_dt: DateTime<Local>,
 ) {
     let fname = format!("bpm_{:03}.dat", filenum);
-    print!("\rWriting file: {fname}");
-    let _ = std::io::stdout().flush();
+    // print!("\rWriting file: {fname}");
+    // let _ = std::io::stdout().flush();
     let mut file = File::create(fname).unwrap();
     write!(file, "# FA data for BPM #{:03}\n", filenum).unwrap();
     write!(file, "# t, x, y\n").unwrap();
