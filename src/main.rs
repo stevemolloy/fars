@@ -9,6 +9,8 @@ use std::io::BufReader;
 use std::io::{Read, Result, Write};
 use std::iter::zip;
 use std::process::exit;
+use std::thread;
+use std::thread::JoinHandle;
 
 #[derive(Debug, Default)]
 struct BpmData {
@@ -219,34 +221,43 @@ fn main() {
     };
 
     let mut filenum = 0;
+    let mut thread_list = Vec::<JoinHandle<()>>::new();
     for bpm in data {
-        let mut timestep = 0;
-        let fname = format!("bpm_{:03}.dat", filenum);
-        print!("\rWriting file: {fname}");
-        let _ = std::io::stdout().flush();
-        let mut file = File::create(fname).unwrap();
-        write!(
-            file,
-            "# FA data for {} / BPM #{:03}\n",
-            ring.to_uppercase(),
-            filenum
-        )
-        .unwrap();
-        write!(file, "# t, x, y\n").unwrap();
-        for (x, y) in zip(&bpm.x, &bpm.y) {
-            let timestamp =
-                start_dt + Duration::nanoseconds((timestep as f64 * timestep_nanoseconds) as i64);
-            write!(
-                file,
-                "{}, {}, {}\n",
-                timestamp.format("%Y-%m-%d_%H:%M:%S.%f"),
-                x,
-                y
-            )
-            .unwrap();
-            timestep += 1;
-        }
+        thread_list.push(thread::spawn(move || {
+            write_bpmdata_to_file(filenum.clone(), bpm, timestep_nanoseconds.clone(), start_dt);
+        }));
         filenum += 1;
     }
+    for thr in thread_list {
+        let _ = thr.join().unwrap();
+    }
     println!("\n{}: Done!", Local::now().timestamp_millis());
+}
+
+fn write_bpmdata_to_file(
+    filenum: usize,
+    bpm: BpmData,
+    timestep_nanoseconds: f64,
+    start_dt: DateTime<Local>,
+) {
+    let fname = format!("bpm_{:03}.dat", filenum);
+    print!("\rWriting file: {fname}");
+    let _ = std::io::stdout().flush();
+    let mut file = File::create(fname).unwrap();
+    write!(file, "# FA data for BPM #{:03}\n", filenum).unwrap();
+    write!(file, "# t, x, y\n").unwrap();
+    let mut timestep = 0;
+    for (x, y) in zip(&bpm.x, &bpm.y) {
+        let timestamp =
+            start_dt + Duration::nanoseconds((timestep as f64 * timestep_nanoseconds) as i64);
+        write!(
+            file,
+            "{}, {}, {}\n",
+            timestamp.format("%Y-%m-%d_%H:%M:%S.%f"),
+            x,
+            y
+        )
+        .unwrap();
+        timestep += 1;
+    }
 }
