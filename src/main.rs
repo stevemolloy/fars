@@ -1,20 +1,19 @@
 use chrono::offset::TimeZone;
 use chrono::prelude::*;
 use chrono::Duration;
+use itertools::izip;
 use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::env::args;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::{Read, Result, Write};
-use std::iter::zip;
 use std::process::exit;
-use std::thread;
-use std::thread::JoinHandle;
 use threadpool::ThreadPool;
 
 #[derive(Debug, Default)]
 struct BpmData {
+    ts: Vec<i64>,
     x: Vec<i32>,
     y: Vec<i32>,
 }
@@ -88,6 +87,11 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
         }
         _ => panic!("Unknown ring: {}", ring),
     };
+    println!(
+        "{}: Number of BPMs in data = {}",
+        Local::now().timestamp_millis(),
+        bpm_range.len()
+    );
     const CHKBYTESIZE: usize = 1;
     const HDRSIZE: usize = 8;
     const DATSIZE: usize = 4;
@@ -106,7 +110,6 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
 
     let mut checkbyte = [0u8; CHKBYTESIZE];
     let mut header = [0u8; HDRSIZE];
-    // let mut buf = Vec::new();
     let total_time = (end_dt.timestamp_nanos() - start_dt.timestamp_nanos()) / 1_000_000_000;
     let mut buf = Vec::with_capacity(16222400 * total_time as usize);
 
@@ -121,7 +124,6 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
     stream.read_exact(&mut header)?;
     let mut reader = BufReader::new(&stream);
     let read_bytes = reader.read_to_end(&mut buf)?;
-    // let read_bytes = stream.read_to_end(&mut buf)?;
     println!(
         "{}: Read {} bytes",
         Local::now().timestamp_millis(),
@@ -134,19 +136,38 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
         let val = i32::from_ne_bytes((&buf[i..i + DATSIZE]).try_into().unwrap());
         values.push(val);
     }
+    let num_datapoints = values.len() / (2 * bpm_range.len());
+
+    let fs = match get_fs(&ring) {
+        Ok(result) => result,
+        Err(e) => {
+            eprintln!("{e}");
+            exit(1);
+        }
+    };
+    let timestep_nanoseconds: f64 = 1_000_000_000f64 / fs;
+
+    let ts: Vec<_> = (1..num_datapoints)
+        .map(|x| {
+            (start_dt + Duration::nanoseconds((x as f64 * timestep_nanoseconds) as i64)).timestamp()
+        })
+        .collect();
 
     for (i, _) in bpm_range.iter().enumerate() {
+        let x_vals = values[2 * i..]
+            .iter()
+            .step_by(bpm_range.len() * 2)
+            .cloned()
+            .collect::<Vec<i32>>();
+        let y_vals = values[2 * i + 1..]
+            .iter()
+            .step_by(bpm_range.len() * 2)
+            .cloned()
+            .collect::<Vec<i32>>();
         let d = BpmData {
-            x: values[2 * i..]
-                .iter()
-                .step_by(bpm_range.len() * 2)
-                .cloned()
-                .collect::<Vec<i32>>(),
-            y: values[2 * i + 1..]
-                .iter()
-                .step_by(bpm_range.len() * 2)
-                .cloned()
-                .collect::<Vec<i32>>(),
+            ts: ts.clone(),
+            x: x_vals,
+            y: y_vals,
         };
         datasets.push(d);
     }
@@ -195,23 +216,6 @@ fn main() {
         }
     }
 
-    let start_dt = match Local.datetime_from_str(&start_time, "%Y-%m-%dT%H:%M:%S%.f") {
-        Ok(dt) => dt,
-        _ => {
-            eprintln!("Could not understand the `--start` flag; `{start_time}`");
-            exit(1);
-        }
-    };
-
-    let fs = match get_fs(&ring) {
-        Ok(result) => result,
-        Err(e) => {
-            eprintln!("{e}");
-            exit(1);
-        }
-    };
-    let timestep_nanoseconds: f64 = 1_000_000_000f64 / fs;
-
     let data = match get_archived_data(&ring, &start_time, &end_time) {
         Ok(reply) => reply,
         _ => {
@@ -223,11 +227,10 @@ fn main() {
 
     println!("{}: Writing to file.", Local::now().timestamp_millis());
     let mut filenum = 0;
-    // let mut thread_list = Vec::<JoinHandle<()>>::new();
     let pool = ThreadPool::new(7);
     for bpm in data {
         pool.execute(move || {
-            write_bpmdata_to_file(filenum.clone(), bpm, timestep_nanoseconds.clone(), start_dt);
+            write_bpmdata_to_file(filenum.clone(), bpm);
         });
         filenum += 1;
     }
@@ -239,29 +242,13 @@ fn main() {
     println!("{}: Done!", Local::now().timestamp_millis());
 }
 
-fn write_bpmdata_to_file(
-    filenum: usize,
-    bpm: BpmData,
-    timestep_nanoseconds: f64,
-    start_dt: DateTime<Local>,
-) {
+fn write_bpmdata_to_file(filenum: usize, bpm: BpmData) {
     let fname = format!("bpm_{:03}.dat", filenum);
     let mut file = File::create(fname).unwrap();
     write!(file, "# FA data for BPM #{:03}\n", filenum).unwrap();
     write!(file, "# t, x, y\n").unwrap();
 
-    let mut timestep = 0;
-    for (x, y) in zip(&bpm.x, &bpm.y) {
-        let timestamp =
-            start_dt + Duration::nanoseconds((timestep as f64 * timestep_nanoseconds) as i64);
-        write!(
-            file,
-            "{}, {}, {}\n",
-            timestamp.format("%Y-%m-%d_%H:%M:%S.%f"),
-            x,
-            y
-        )
-        .unwrap();
-        timestep += 1;
+    for (t, x, y) in izip!(&bpm.ts, &bpm.x, &bpm.y) {
+        write!(file, "{}, {}, {}\n", t, x, y).unwrap();
     }
 }
