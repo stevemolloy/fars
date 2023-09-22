@@ -18,6 +18,15 @@ struct BpmData {
     y: Vec<i32>,
 }
 
+impl BpmData {
+    fn output_string(self) -> String {
+        let sum = izip!(self.ts, self.x, self.y).fold("".to_string(), |acc, x| {
+            format!("{}{}, {}, {}\n", acc, x.0, x.1, x.2)
+        });
+        return sum;
+    }
+}
+
 fn get_fs(ring: &str) -> Result<f64> {
     const HOST: &str = "fa";
     let port: u16 = match ring.to_lowercase().as_str() {
@@ -249,7 +258,5 @@ fn write_bpmdata_to_file(filenum: usize, bpm: BpmData) {
     write!(file, "# FA data for BPM #{:03}\n", filenum).unwrap();
     write!(file, "# t, x, y\n").unwrap();
 
-    for (t, x, y) in izip!(&bpm.ts, &bpm.x, &bpm.y) {
-        write!(file, "{}, {}, {}\n", t, x, y).unwrap();
-    }
+    write!(file, "{}", bpm.output_string()).unwrap();
 }
