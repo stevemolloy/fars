@@ -13,7 +13,7 @@ use threadpool::ThreadPool;
 
 #[derive(Debug, Default)]
 struct BpmData {
-    ts: Vec<i64>,
+    ts: Vec<String>,
     x: Vec<i32>,
     y: Vec<i32>,
 }
@@ -149,7 +149,8 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
 
     let ts: Vec<_> = (1..num_datapoints)
         .map(|x| {
-            (start_dt + Duration::nanoseconds((x as f64 * timestep_nanoseconds) as i64)).timestamp()
+            (start_dt + Duration::nanoseconds((x as f64 * timestep_nanoseconds) as i64))
+                .to_rfc3339()
         })
         .collect();
 
