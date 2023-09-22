@@ -5,6 +5,7 @@ use itertools::izip;
 use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::env::args;
+use std::fmt::Write as fmt_wrt;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::{Read, Result, Write};
@@ -20,9 +21,12 @@ struct BpmData {
 
 impl BpmData {
     fn output_string(self) -> String {
-        let sum = izip!(self.ts, self.x, self.y).fold("".to_string(), |acc, x| {
-            format!("{}{}, {}, {}\n", acc, x.0, x.1, x.2)
-        });
+        let capacity = self.ts.len() * 100;
+        let sum =
+            izip!(self.ts, self.x, self.y).fold(String::with_capacity(capacity), |mut acc, x| {
+                let _ = write!(acc, "{}, {}, {}\n", x.0, x.1, x.2);
+                acc
+            });
         return sum;
     }
 }
