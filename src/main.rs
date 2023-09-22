@@ -11,6 +11,7 @@ use std::iter::zip;
 use std::process::exit;
 use std::thread;
 use std::thread::JoinHandle;
+use threadpool::ThreadPool;
 
 #[derive(Debug, Default)]
 struct BpmData {
@@ -222,20 +223,19 @@ fn main() {
 
     println!("{}: Writing to file.", Local::now().timestamp_millis());
     let mut filenum = 0;
-    let mut thread_list = Vec::<JoinHandle<()>>::new();
+    // let mut thread_list = Vec::<JoinHandle<()>>::new();
+    let pool = ThreadPool::new(7);
     for bpm in data {
-        thread_list.push(thread::spawn(move || {
+        pool.execute(move || {
             write_bpmdata_to_file(filenum.clone(), bpm, timestep_nanoseconds.clone(), start_dt);
-        }));
+        });
         filenum += 1;
     }
     println!(
         "{}: Waiting for file-write threads to finish. This can take some time for large datasets.",
         Local::now().timestamp_millis()
     );
-    for thr in thread_list {
-        let _ = thr.join().unwrap();
-    }
+    pool.join();
     println!("{}: Done!", Local::now().timestamp_millis());
 }
 
