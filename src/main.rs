@@ -14,6 +14,8 @@ use threadpool::ThreadPool;
 
 #[derive(Debug, Default)]
 struct BpmData {
+    ring: String,
+    bpmnum: usize,
     ts: Vec<String>,
     x: Vec<i32>,
     y: Vec<i32>,
@@ -24,10 +26,261 @@ impl BpmData {
         let capacity = self.ts.len() * 100;
         let sum =
             izip!(self.ts, self.x, self.y).fold(String::with_capacity(capacity), |mut acc, x| {
-                let _ = write!(acc, "{}, {}, {}\n", x.0, x.1, x.2);
+                let _ = write!(acc, "{}, [{}, {}]\n", x.0, x.1, x.2);
                 acc
             });
         return sum;
+    }
+
+    fn get_bpm_name(&self) -> String {
+        let r3_bpmname_list = vec![
+            "R3-301M1/DIA/BPM-01",
+            "R3-301M1/DIA/BPM-02",
+            "R3-301U1/DIA/BPM-01",
+            "R3-301U2/DIA/BPM-01",
+            "R3-301U3/DIA/BPM-01",
+            "R3-301U3/DIA/BPM-02",
+            "R3-301U4/DIA/BPM-01",
+            "R3-301U5/DIA/BPM-01",
+            "R3-301M2/DIA/BPM-01",
+            "R3-301M2/DIA/BPM-02",
+            "R3-302M1/DIA/BPM-01",
+            "R3-302M1/DIA/BPM-02",
+            "R3-302U1/DIA/BPM-01",
+            "R3-302U2/DIA/BPM-01",
+            "R3-302U3/DIA/BPM-01",
+            "R3-302U3/DIA/BPM-02",
+            "R3-302U4/DIA/BPM-01",
+            "R3-302U5/DIA/BPM-01",
+            "R3-302M2/DIA/BPM-01",
+            "R3-302M2/DIA/BPM-02",
+            "R3-303M1/DIA/BPM-01",
+            "R3-303M1/DIA/BPM-02",
+            "R3-303U1/DIA/BPM-01",
+            "R3-303U2/DIA/BPM-01",
+            "R3-303U3/DIA/BPM-01",
+            "R3-303U3/DIA/BPM-02",
+            "R3-303U4/DIA/BPM-01",
+            "R3-303U5/DIA/BPM-01",
+            "R3-303M2/DIA/BPM-01",
+            "R3-303M2/DIA/BPM-02",
+            "R3-304M1/DIA/BPM-01",
+            "R3-304M1/DIA/BPM-02",
+            "R3-304U1/DIA/BPM-01",
+            "R3-304U2/DIA/BPM-01",
+            "R3-304U3/DIA/BPM-01",
+            "R3-304U3/DIA/BPM-02",
+            "R3-304U4/DIA/BPM-01",
+            "R3-304U5/DIA/BPM-01",
+            "R3-304M2/DIA/BPM-01",
+            "R3-304M2/DIA/BPM-02",
+            "R3-305M1/DIA/BPM-01",
+            "R3-305M1/DIA/BPM-02",
+            "R3-305U1/DIA/BPM-01",
+            "R3-305U2/DIA/BPM-01",
+            "R3-305U3/DIA/BPM-01",
+            "R3-305U3/DIA/BPM-02",
+            "R3-305U4/DIA/BPM-01",
+            "R3-305U5/DIA/BPM-01",
+            "R3-305M2/DIA/BPM-01",
+            "R3-305M2/DIA/BPM-02",
+            "R3-306M1/DIA/BPM-01",
+            "R3-306M1/DIA/BPM-02",
+            "R3-306U1/DIA/BPM-01",
+            "R3-306U2/DIA/BPM-01",
+            "R3-306U3/DIA/BPM-01",
+            "R3-306U3/DIA/BPM-02",
+            "R3-306U4/DIA/BPM-01",
+            "R3-306U5/DIA/BPM-01",
+            "R3-306M2/DIA/BPM-01",
+            "R3-306M2/DIA/BPM-02",
+            "R3-307M1/DIA/BPM-01",
+            "R3-307M1/DIA/BPM-02",
+            "R3-307U1/DIA/BPM-01",
+            "R3-307U2/DIA/BPM-01",
+            "R3-307U3/DIA/BPM-01",
+            "R3-307U3/DIA/BPM-02",
+            "R3-307U4/DIA/BPM-01",
+            "R3-307U5/DIA/BPM-01",
+            "R3-307M2/DIA/BPM-01",
+            "R3-307M2/DIA/BPM-02",
+            "R3-308M1/DIA/BPM-01",
+            "R3-308M1/DIA/BPM-02",
+            "R3-308U1/DIA/BPM-01",
+            "R3-308U2/DIA/BPM-01",
+            "R3-308U3/DIA/BPM-01",
+            "R3-308U3/DIA/BPM-02",
+            "R3-308U4/DIA/BPM-01",
+            "R3-308U5/DIA/BPM-01",
+            "R3-308M2/DIA/BPM-01",
+            "R3-308M2/DIA/BPM-02",
+            "R3-309M1/DIA/BPM-01",
+            "R3-309M1/DIA/BPM-02",
+            "R3-309U1/DIA/BPM-01",
+            "R3-309U2/DIA/BPM-01",
+            "R3-309U3/DIA/BPM-01",
+            "R3-309U3/DIA/BPM-02",
+            "R3-309U4/DIA/BPM-01",
+            "R3-309U5/DIA/BPM-01",
+            "R3-309M2/DIA/BPM-01",
+            "R3-309M2/DIA/BPM-02",
+            "R3-310M1/DIA/BPM-01",
+            "R3-310M1/DIA/BPM-02",
+            "R3-310U1/DIA/BPM-01",
+            "R3-310U2/DIA/BPM-01",
+            "R3-310U3/DIA/BPM-01",
+            "R3-310U3/DIA/BPM-02",
+            "R3-310U4/DIA/BPM-01",
+            "R3-310U5/DIA/BPM-01",
+            "R3-310M2/DIA/BPM-01",
+            "R3-310M2/DIA/BPM-02",
+            "R3-311M1/DIA/BPM-01",
+            "R3-311M1/DIA/BPM-02",
+            "R3-311U1/DIA/BPM-01",
+            "R3-311U2/DIA/BPM-01",
+            "R3-311U3/DIA/BPM-01",
+            "R3-311U3/DIA/BPM-02",
+            "R3-311U4/DIA/BPM-01",
+            "R3-311U5/DIA/BPM-01",
+            "R3-311M2/DIA/BPM-01",
+            "R3-311M2/DIA/BPM-02",
+            "R3-312M1/DIA/BPM-01",
+            "R3-312M1/DIA/BPM-02",
+            "R3-312U1/DIA/BPM-01",
+            "R3-312U2/DIA/BPM-01",
+            "R3-312U3/DIA/BPM-01",
+            "R3-312U3/DIA/BPM-02",
+            "R3-312U4/DIA/BPM-01",
+            "R3-312U5/DIA/BPM-01",
+            "R3-312M2/DIA/BPM-01",
+            "R3-312M2/DIA/BPM-02",
+            "R3-313M1/DIA/BPM-01",
+            "R3-313M1/DIA/BPM-02",
+            "R3-313U1/DIA/BPM-01",
+            "R3-313U2/DIA/BPM-01",
+            "R3-313U3/DIA/BPM-01",
+            "R3-313U3/DIA/BPM-02",
+            "R3-313U4/DIA/BPM-01",
+            "R3-313U5/DIA/BPM-01",
+            "R3-313M2/DIA/BPM-01",
+            "R3-313M2/DIA/BPM-02",
+            "R3-314M1/DIA/BPM-01",
+            "R3-314M1/DIA/BPM-02",
+            "R3-314U1/DIA/BPM-01",
+            "R3-314U2/DIA/BPM-01",
+            "R3-314U3/DIA/BPM-01",
+            "R3-314U3/DIA/BPM-02",
+            "R3-314U4/DIA/BPM-01",
+            "R3-314U5/DIA/BPM-01",
+            "R3-314M2/DIA/BPM-01",
+            "R3-314M2/DIA/BPM-02",
+            "R3-315M1/DIA/BPM-01",
+            "R3-315M1/DIA/BPM-02",
+            "R3-315U1/DIA/BPM-01",
+            "R3-315U2/DIA/BPM-01",
+            "R3-315U3/DIA/BPM-01",
+            "R3-315U3/DIA/BPM-02",
+            "R3-315U4/DIA/BPM-01",
+            "R3-315U5/DIA/BPM-01",
+            "R3-315M2/DIA/BPM-01",
+            "R3-315M2/DIA/BPM-02",
+            "R3-316M1/DIA/BPM-01",
+            "R3-316M1/DIA/BPM-02",
+            "R3-316U1/DIA/BPM-01",
+            "R3-316U2/DIA/BPM-01",
+            "R3-316U3/DIA/BPM-01",
+            "R3-316U3/DIA/BPM-02",
+            "R3-316U4/DIA/BPM-01",
+            "R3-316U5/DIA/BPM-01",
+            "R3-316M2/DIA/BPM-01",
+            "R3-316M2/DIA/BPM-02",
+            "R3-317M1/DIA/BPM-01",
+            "R3-317M1/DIA/BPM-02",
+            "R3-317U1/DIA/BPM-01",
+            "R3-317U2/DIA/BPM-01",
+            "R3-317U3/DIA/BPM-01",
+            "R3-317U3/DIA/BPM-02",
+            "R3-317U4/DIA/BPM-01",
+            "R3-317U5/DIA/BPM-01",
+            "R3-317M2/DIA/BPM-01",
+            "R3-317M2/DIA/BPM-02",
+            "R3-318M1/DIA/BPM-01",
+            "R3-318M1/DIA/BPM-02",
+            "R3-318U1/DIA/BPM-01",
+            "R3-318U2/DIA/BPM-01",
+            "R3-318U3/DIA/BPM-01",
+            "R3-318U3/DIA/BPM-02",
+            "R3-318U4/DIA/BPM-01",
+            "R3-318U5/DIA/BPM-01",
+            "R3-318M2/DIA/BPM-01",
+            "R3-318M2/DIA/BPM-02",
+            "R3-319M1/DIA/BPM-01",
+            "R3-319M1/DIA/BPM-02",
+            "R3-319U1/DIA/BPM-01",
+            "R3-319U2/DIA/BPM-01",
+            "R3-319U3/DIA/BPM-01",
+            "R3-319U3/DIA/BPM-02",
+            "R3-319U4/DIA/BPM-01",
+            "R3-319U5/DIA/BPM-01",
+            "R3-319M2/DIA/BPM-01",
+            "R3-319M2/DIA/BPM-02",
+            "R3-320M1/DIA/BPM-01",
+            "R3-320M1/DIA/BPM-02",
+            "R3-320U1/DIA/BPM-01",
+            "R3-320U2/DIA/BPM-01",
+            "R3-320U3/DIA/BPM-01",
+            "R3-320U3/DIA/BPM-02",
+            "R3-320U4/DIA/BPM-01",
+            "R3-320U5/DIA/BPM-01",
+            "R3-320M2/DIA/BPM-01",
+            "R3-320M2/DIA/BPM-02",
+        ];
+        let r1_bpmname_list = vec![
+            "R1-101/DIA/BPM-01",
+            "R1-101/DIA/BPM-02",
+            "R1-101/DIA/BPM-03",
+            "R1-102/DIA/BPM-01",
+            "R1-102/DIA/BPM-02",
+            "R1-102/DIA/BPM-03",
+            "R1-103/DIA/BPM-01",
+            "R1-103/DIA/BPM-02",
+            "R1-103/DIA/BPM-03",
+            "R1-104/DIA/BPM-01",
+            "R1-104/DIA/BPM-02",
+            "R1-104/DIA/BPM-03",
+            "R1-105/DIA/BPM-01",
+            "R1-105/DIA/BPM-02",
+            "R1-105/DIA/BPM-03",
+            "R1-106/DIA/BPM-01",
+            "R1-106/DIA/BPM-02",
+            "R1-106/DIA/BPM-03",
+            "R1-107/DIA/BPM-01",
+            "R1-107/DIA/BPM-02",
+            "R1-107/DIA/BPM-03",
+            "R1-108/DIA/BPM-01",
+            "R1-108/DIA/BPM-02",
+            "R1-108/DIA/BPM-03",
+            "R1-109/DIA/BPM-01",
+            "R1-109/DIA/BPM-02",
+            "R1-109/DIA/BPM-03",
+            "R1-110/DIA/BPM-01",
+            "R1-110/DIA/BPM-02",
+            "R1-110/DIA/BPM-03",
+            "R1-111/DIA/BPM-01",
+            "R1-111/DIA/BPM-02",
+            "R1-111/DIA/BPM-03",
+            "R1-112/DIA/BPM-01",
+            "R1-112/DIA/BPM-02",
+            "R1-112/DIA/BPM-03",
+        ];
+
+        if self.ring.to_lowercase() == "r3" {
+            r3_bpmname_list[self.bpmnum].to_string()
+        } else if self.ring.to_lowercase() == "r1" {
+            r1_bpmname_list[self.bpmnum].to_string()
+        } else {
+            unreachable!("Shouldn't ever get here...");
+        }
     }
 }
 
@@ -163,7 +416,8 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
     let ts: Vec<_> = (1..num_datapoints)
         .map(|x| {
             (start_dt + Duration::nanoseconds((x as f64 * timestep_nanoseconds) as i64))
-                .to_rfc3339()
+                .format("%Y-%m-%d_%H:%M:%S.%f")
+                .to_string()
         })
         .collect();
 
@@ -179,6 +433,8 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
             .cloned()
             .collect::<Vec<i32>>();
         let d = BpmData {
+            ring: ring.to_string(),
+            bpmnum: i,
             ts: ts.clone(),
             x: x_vals,
             y: y_vals,
@@ -191,13 +447,15 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
 }
 
 fn print_help(exe_name: &str) {
-    eprintln!("{exe_name} --ring R1|R3 --start YYYY-MM-DDThh:mm:ss.s --end YYYY-MM-DDThh:mm:ss.s");
+    eprintln!(
+        "{exe_name} --ring R1|R3 --start YYYY-MM-DDThh:mm:ss.xxx --end YYYY-MM-DDThh:mm:ss.xxx [--file basename]"
+    );
 }
 
 fn main() {
     let mut args: VecDeque<String> = args().collect();
     let exe_name = args.pop_front().unwrap();
-    if args.len() != 6 {
+    if args.len() != 6 && args.len() != 8 {
         println!("\nCould not find the correct number of arguments.");
         print_help(&exe_name);
         exit(1);
@@ -206,6 +464,7 @@ fn main() {
     let mut start_time: String = "".to_string();
     let mut end_time: String = "".to_string();
     let mut ring: String = "".to_string();
+    let mut filename: String = "bpm".to_string();
 
     while !args.is_empty() {
         let next_arg = args.pop_front().unwrap();
@@ -221,6 +480,10 @@ fn main() {
             },
             "--ring" => match args.pop_front() {
                 Some(expr) => ring = expr,
+                None => unreachable!("Code should never get here"),
+            },
+            "--file" => match args.pop_front() {
+                Some(expr) => filename = expr,
                 None => unreachable!("Code should never get here"),
             },
             e => {
@@ -240,13 +503,12 @@ fn main() {
     };
 
     println!("{}: Writing to file.", Local::now().timestamp_millis());
-    let mut filenum = 0;
     let pool = ThreadPool::new(7);
     for bpm in data {
+        let basename = filename.clone();
         pool.execute(move || {
-            write_bpmdata_to_file(filenum.clone(), bpm);
+            write_bpmdata_to_file(&basename, bpm);
         });
-        filenum += 1;
     }
     println!(
         "{}: Waiting for file-write threads to finish. This can take some time for large datasets.",
@@ -256,11 +518,16 @@ fn main() {
     println!("{}: Done!", Local::now().timestamp_millis());
 }
 
-fn write_bpmdata_to_file(filenum: usize, bpm: BpmData) {
-    let fname = format!("bpm_{:03}.dat", filenum);
+fn write_bpmdata_to_file(basename: &str, bpm: BpmData) {
+    let fname = format!("{}_{:03}.dat", basename, bpm.bpmnum);
     let mut file = File::create(fname).unwrap();
-    write!(file, "# FA data for BPM #{:03}\n", filenum).unwrap();
-    write!(file, "# t, x, y\n").unwrap();
+    write!(
+        file,
+        "\"# DATASET= tango://g-v-csdb-0.maxiv.lu.se:10000/{}/fa\"\n",
+        bpm.get_bpm_name()
+    )
+    .unwrap();
+    write!(file, "# t, [x, y]\n").unwrap();
 
     write!(file, "{}", bpm.output_string()).unwrap();
 }
