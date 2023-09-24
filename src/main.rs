@@ -12,9 +12,31 @@ use std::io::{Read, Result, Write};
 use std::process::exit;
 use threadpool::ThreadPool;
 
+#[derive(PartialEq, Debug, Clone)]
+enum Ring {
+    R1,
+    R3,
+    UNK,
+}
+
+impl Default for Ring {
+    fn default() -> Self {
+        Ring::UNK
+    }
+}
+
+#[derive(Default)]
+struct Options {
+    start_time: Option<DateTime<Local>>,
+    end_time: Option<DateTime<Local>>,
+    deci: bool,
+    file: String,
+    ring: Ring,
+}
+
 #[derive(Debug, Default)]
 struct BpmData {
-    ring: String,
+    ring: Ring,
     bpmnum: usize,
     ts: Vec<String>,
     x: Vec<i32>,
@@ -274,9 +296,9 @@ impl BpmData {
             "R1-112/DIA/BPM-03",
         ];
 
-        if self.ring.to_lowercase() == "r3" {
+        if self.ring == Ring::R3 {
             r3_bpmname_list[self.bpmnum].to_string()
-        } else if self.ring.to_lowercase() == "r1" {
+        } else if self.ring == Ring::R1 {
             r1_bpmname_list[self.bpmnum].to_string()
         } else {
             unreachable!("Shouldn't ever get here...");
@@ -284,14 +306,13 @@ impl BpmData {
     }
 }
 
-fn get_fs(ring: &str) -> Result<f64> {
+fn get_fs(ring: Ring) -> Result<f64> {
     const HOST: &str = "fa";
-    let port: u16 = match ring.to_lowercase().as_str() {
-        "r1" => 12001,
-        "r3" => 32001,
-        _ => {
-            eprintln!("Could not understand the `--ring` flag; `{ring}`");
-            exit(1);
+    let port: u16 = match ring {
+        Ring::R1 => 12001,
+        Ring::R3 => 32001,
+        Ring::UNK => {
+            unreachable!("Should be impossible to get here...");
         }
     };
     let cmd = "CF\n";
@@ -312,9 +333,9 @@ fn get_fs(ring: &str) -> Result<f64> {
 }
 
 fn get_archived_data(
-    ring: &str,
-    start_string: &str,
-    end_string: &str,
+    ring: Ring,
+    start_dt: &DateTime<Local>,
+    end_dt: &DateTime<Local>,
     decimated: bool,
 ) -> Result<Vec<BpmData>> {
     println!(
@@ -326,37 +347,23 @@ fn get_archived_data(
     let bpm_range: Vec<String>;
     let bpm_cmd_str: String;
 
-    let start_dt = match Local.datetime_from_str(&start_string, "%Y-%m-%dT%H:%M:%S%.f") {
-        Ok(dt) => dt,
-        _ => {
-            eprintln!("Could not understand the `--start` flag; `{start_string}`");
-            exit(1);
-        }
-    };
-    let end_dt = match Local.datetime_from_str(&end_string, "%Y-%m-%dT%H:%M:%S%.f") {
-        Ok(dt) => dt,
-        _ => {
-            eprintln!("Could not understand the `--end` flag; `{end_string}`");
-            exit(1);
-        }
-    };
     let start_seconds = start_dt.timestamp();
     let start_nanos = start_dt.timestamp_nanos() - start_seconds * 1_000_000_000;
     let end_seconds = end_dt.timestamp();
     let end_nanos = end_dt.timestamp_nanos() - end_seconds * 1_000_000_000;
 
-    match ring.to_lowercase().as_str() {
-        "r1" => {
+    match ring {
+        Ring::R1 => {
             port = 12001;
             bpm_range = (1..37).map(|x| x.to_string()).collect();
             bpm_cmd_str = "1-36".to_string();
         }
-        "r3" => {
+        Ring::R3 => {
             port = 32001;
             bpm_range = (1..201).map(|x| x.to_string()).collect();
             bpm_cmd_str = "1-200".to_string();
         }
-        _ => panic!("Unknown ring: {}", ring),
+        Ring::UNK => unreachable!("Shouldn't be able to get here..."),
     };
     println!(
         "{}: Number of BPMs in data = {}",
@@ -422,7 +429,7 @@ fn get_archived_data(
     }
     let num_datapoints = values.len() / (2 * bpm_range.len());
 
-    let fs = match get_fs(&ring) {
+    let fs = match get_fs(ring.clone()) {
         Ok(result) => result,
         Err(e) => {
             eprintln!("{e}");
@@ -433,7 +440,7 @@ fn get_archived_data(
 
     let ts: Vec<_> = (1..num_datapoints)
         .map(|x| {
-            (start_dt
+            (*start_dt
                 + Duration::nanoseconds(
                     ((x - 1) as f64 * timestep_nanoseconds * capacity_divisor as f64) as i64,
                 ))
@@ -454,7 +461,7 @@ fn get_archived_data(
             .cloned()
             .collect::<Vec<i32>>();
         let d = BpmData {
-            ring: ring.to_string(),
+            ring: ring.clone(),
             bpmnum: i,
             ts: ts.clone(),
             x: x_vals,
@@ -482,7 +489,7 @@ fn print_version(exe_name: &str) {
 fn main() {
     let mut args: VecDeque<String> = args().collect();
     let exe_name = args.pop_front().unwrap();
-    if args.contains(&"--help".to_string()) {
+    if args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
         print_help(&exe_name);
         exit(0);
     }
@@ -490,51 +497,68 @@ fn main() {
         print_version(&exe_name);
         exit(0);
     }
-    // if args.len() != 6 && args.len() != 8 {
-    //     println!("\nCould not find the correct number of arguments.");
-    //     print_help(&exe_name);
-    //     exit(1);
-    // }
 
-    let mut start_time: String = "".to_string();
-    let mut end_time: String = "".to_string();
-    let mut ring: String = "".to_string();
-    let mut filename: String = "bpm".to_string();
-    let mut decimated: bool = false;
+    let mut opts: Options = Options::default();
 
     while !args.is_empty() {
         let next_arg = args.pop_front().unwrap();
         match next_arg.as_str() {
-            "-h" | "--help" => print_help(&exe_name),
             "--start" => match args.pop_front() {
-                Some(expr) => start_time = expr,
+                Some(expr) => {
+                    let start_time = match Local.datetime_from_str(&expr, "%Y-%m-%dT%H:%M:%S%.f") {
+                        Ok(dt) => dt,
+                        _ => {
+                            eprintln!("Could not understand the `--start` flag; `{expr}`");
+                            exit(1);
+                        }
+                    };
+                    opts.start_time = Some(start_time);
+                }
                 None => {
                     eprintln!("Input parameters were not correct");
                     print_help(&exe_name);
                 }
             },
             "--end" => match args.pop_front() {
-                Some(expr) => end_time = expr,
+                Some(expr) => {
+                    let end_time = match Local.datetime_from_str(&expr, "%Y-%m-%dT%H:%M:%S%.f") {
+                        Ok(dt) => dt,
+                        _ => {
+                            eprintln!("Could not understand the `--end` flag; `{expr}`");
+                            exit(1);
+                        }
+                    };
+                    opts.end_time = Some(end_time);
+                }
                 None => {
                     eprintln!("Input parameters were not correct");
                     print_help(&exe_name);
                 }
             },
             "--ring" => match args.pop_front() {
-                Some(expr) => ring = expr,
+                Some(expr) => {
+                    opts.ring = match expr.to_lowercase().as_str() {
+                        "r1" => Ring::R1,
+                        "r3" => Ring::R3,
+                        _ => {
+                            eprintln!("Could not understand `--ring` val ({})", expr);
+                            exit(1);
+                        }
+                    }
+                }
                 None => {
                     eprintln!("Input parameters were not correct");
                     print_help(&exe_name);
                 }
             },
             "--file" => match args.pop_front() {
-                Some(expr) => filename = expr,
+                Some(expr) => opts.file = expr,
                 None => {
                     eprintln!("Input parameters were not correct");
                     print_help(&exe_name);
                 }
             },
-            "--deci" => decimated = true,
+            "--deci" => opts.deci = true,
             e => {
                 eprintln!("{e}");
                 exit(1);
@@ -542,7 +566,25 @@ fn main() {
         }
     }
 
-    let data = match get_archived_data(&ring, &start_time, &end_time, decimated) {
+    if opts.start_time.is_none() {
+        eprintln!("No start time was given");
+        exit(1);
+    }
+    if opts.end_time.is_none() {
+        eprintln!("No end time was given");
+        exit(1);
+    }
+    if opts.ring == Ring::UNK {
+        eprintln!("No ring variable was given");
+        exit(1);
+    }
+
+    let data = match get_archived_data(
+        opts.ring,
+        &opts.start_time.unwrap(),
+        &opts.end_time.unwrap(),
+        opts.deci,
+    ) {
         Ok(reply) => reply,
         _ => {
             eprintln!("There was a problem getting data from the archiver.");
@@ -554,7 +596,7 @@ fn main() {
     println!("{}: Writing to file.", Local::now().timestamp_millis());
     let pool = ThreadPool::new(7);
     for bpm in data {
-        let basename = filename.clone();
+        let basename = opts.file.clone();
         pool.execute(move || {
             write_bpmdata_to_file(&basename, bpm);
         });
