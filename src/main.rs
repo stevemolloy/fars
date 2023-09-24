@@ -311,7 +311,12 @@ fn get_fs(ring: &str) -> Result<f64> {
     Ok(fs)
 }
 
-fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result<Vec<BpmData>> {
+fn get_archived_data(
+    ring: &str,
+    start_string: &str,
+    end_string: &str,
+    decimated: bool,
+) -> Result<Vec<BpmData>> {
     println!(
         "{}: entered get_archived_data function",
         Local::now().timestamp_millis()
@@ -364,9 +369,21 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
 
     let mut datasets = vec![];
 
+    let acq_type: String = if decimated {
+        "DF1".to_string()
+    } else {
+        "F".to_string()
+    };
+    let capacity_divisor = if decimated { 64 } else { 1 };
+    println!(
+        "{}: capacity_divisor: '{}'",
+        Local::now().timestamp_millis(),
+        capacity_divisor
+    );
+
     let cmd_str = format!(
-        "RFM{}S{}.{:09}ES{}.{:09}N\n",
-        bpm_cmd_str, start_seconds, start_nanos, end_seconds, end_nanos,
+        "R{}M{}S{}.{:09}ES{}.{:09}N\n",
+        acq_type, bpm_cmd_str, start_seconds, start_nanos, end_seconds, end_nanos,
     );
     println!(
         "{}: Sending the command: '{}'",
@@ -377,7 +394,7 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
     let mut checkbyte = [0u8; CHKBYTESIZE];
     let mut header = [0u8; HDRSIZE];
     let total_time = (end_dt.timestamp_nanos() - start_dt.timestamp_nanos()) / 1_000_000_000;
-    let mut buf = Vec::with_capacity(16222400 * total_time as usize);
+    let mut buf = Vec::with_capacity((16222400 / capacity_divisor) * total_time as usize);
 
     let mut stream = std::net::TcpStream::connect((HOST, port))?;
 
@@ -396,6 +413,7 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
         read_bytes
     );
 
+    // println!("{:#?}", buf);
     println!("{}: Parsing data", Local::now().timestamp_millis());
     let mut values = Vec::new();
     for i in (0..buf.len()).step_by(DATSIZE) {
@@ -415,9 +433,12 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
 
     let ts: Vec<_> = (1..num_datapoints)
         .map(|x| {
-            (start_dt + Duration::nanoseconds((x as f64 * timestep_nanoseconds) as i64))
-                .format("%Y-%m-%d_%H:%M:%S.%f")
-                .to_string()
+            (start_dt
+                + Duration::nanoseconds(
+                    ((x - 1) as f64 * timestep_nanoseconds * capacity_divisor as f64) as i64,
+                ))
+            .format("%Y-%m-%d_%H:%M:%S.%f")
+            .to_string()
         })
         .collect();
 
@@ -447,24 +468,39 @@ fn get_archived_data(ring: &str, start_string: &str, end_string: &str) -> Result
 }
 
 fn print_help(exe_name: &str) {
-    eprintln!(
-        "{exe_name} --ring R1|R3 --start YYYY-MM-DDThh:mm:ss.xxx --end YYYY-MM-DDThh:mm:ss.xxx [--file basename]"
-    );
+    println!("Acquires data from the Fast Archiver at MAXIV.\nUsage:");
+    print!("{exe_name} --ring R1|R3 ");
+    print!("--start YYYY-MM-DDThh:mm:ss.xxx ");
+    print!("--end YYYY-MM-DDThh:mm:ss.xxx ");
+    println!("[-file basename]");
+}
+
+fn print_version(exe_name: &str) {
+    println!("{exe_name} v0.2 (2023/09/23)");
 }
 
 fn main() {
     let mut args: VecDeque<String> = args().collect();
     let exe_name = args.pop_front().unwrap();
-    if args.len() != 6 && args.len() != 8 {
-        println!("\nCould not find the correct number of arguments.");
+    if args.contains(&"--help".to_string()) {
         print_help(&exe_name);
-        exit(1);
+        exit(0);
     }
+    if args.contains(&"--version".to_string()) {
+        print_version(&exe_name);
+        exit(0);
+    }
+    // if args.len() != 6 && args.len() != 8 {
+    //     println!("\nCould not find the correct number of arguments.");
+    //     print_help(&exe_name);
+    //     exit(1);
+    // }
 
     let mut start_time: String = "".to_string();
     let mut end_time: String = "".to_string();
     let mut ring: String = "".to_string();
     let mut filename: String = "bpm".to_string();
+    let mut decimated: bool = false;
 
     while !args.is_empty() {
         let next_arg = args.pop_front().unwrap();
@@ -472,20 +508,33 @@ fn main() {
             "-h" | "--help" => print_help(&exe_name),
             "--start" => match args.pop_front() {
                 Some(expr) => start_time = expr,
-                None => unreachable!("Code should never get here"),
+                None => {
+                    eprintln!("Input parameters were not correct");
+                    print_help(&exe_name);
+                }
             },
             "--end" => match args.pop_front() {
                 Some(expr) => end_time = expr,
-                None => unreachable!("Code should never get here"),
+                None => {
+                    eprintln!("Input parameters were not correct");
+                    print_help(&exe_name);
+                }
             },
             "--ring" => match args.pop_front() {
                 Some(expr) => ring = expr,
-                None => unreachable!("Code should never get here"),
+                None => {
+                    eprintln!("Input parameters were not correct");
+                    print_help(&exe_name);
+                }
             },
             "--file" => match args.pop_front() {
                 Some(expr) => filename = expr,
-                None => unreachable!("Code should never get here"),
+                None => {
+                    eprintln!("Input parameters were not correct");
+                    print_help(&exe_name);
+                }
             },
+            "--deci" => decimated = true,
             e => {
                 eprintln!("{e}");
                 exit(1);
@@ -493,7 +542,7 @@ fn main() {
         }
     }
 
-    let data = match get_archived_data(&ring, &start_time, &end_time) {
+    let data = match get_archived_data(&ring, &start_time, &end_time, decimated) {
         Ok(reply) => reply,
         _ => {
             eprintln!("There was a problem getting data from the archiver.");
