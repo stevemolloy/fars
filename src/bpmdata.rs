@@ -1,5 +1,7 @@
 use itertools::izip;
 use std::fmt::Write as fmt_wrt;
+use std::fs::File;
+use std::io::Write;
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum Ring {
@@ -24,6 +26,20 @@ pub struct BpmData {
 }
 
 impl BpmData {
+    pub fn write_to_file(self, basename: &str) {
+        let fname = format!("{}_{:03}.dat", basename, self.bpmnum);
+        let mut file = File::create(fname).unwrap();
+        write!(
+            file,
+            "\"# DATASET= tango://g-v-csdb-0.maxiv.lu.se:10000/{}/fa\"\n",
+            self.get_bpm_name()
+        )
+        .unwrap();
+        write!(file, "# t, [x, y]\n").unwrap();
+
+        write!(file, "{}", self.output_string()).unwrap();
+    }
+
     pub fn output_string(self) -> String {
         let capacity = self.ts.len() * 100;
         let sum =

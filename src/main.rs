@@ -6,7 +6,6 @@ use chrono::Duration;
 use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::env::args;
-use std::fs::File;
 use std::io::BufReader;
 use std::io::{Read, Result, Write};
 use std::process::exit;
@@ -326,7 +325,7 @@ fn main() {
     for bpm in data {
         let basename = opts.file.clone();
         pool.execute(move || {
-            write_bpmdata_to_file(&basename, bpm);
+            bpm.write_to_file(&basename);
         });
     }
     println!(
@@ -335,18 +334,4 @@ fn main() {
     );
     pool.join();
     println!("{}: Done!", Local::now().timestamp_millis());
-}
-
-fn write_bpmdata_to_file(basename: &str, bpm: BpmData) {
-    let fname = format!("{}_{:03}.dat", basename, bpm.bpmnum);
-    let mut file = File::create(fname).unwrap();
-    write!(
-        file,
-        "\"# DATASET= tango://g-v-csdb-0.maxiv.lu.se:10000/{}/fa\"\n",
-        bpm.get_bpm_name()
-    )
-    .unwrap();
-    write!(file, "# t, [x, y]\n").unwrap();
-
-    write!(file, "{}", bpm.output_string()).unwrap();
 }
