@@ -1,13 +1,11 @@
-use crate::bpmdata::BpmData;
-use crate::bpmdata::Ring;
+use crate::bpmdata::{BpmData, Ring};
 use chrono::offset::TimeZone;
 use chrono::prelude::*;
 use chrono::Duration;
 use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::env::args;
-use std::io::BufReader;
-use std::io::{Read, Result, Write};
+use std::io::{BufReader, Read, Result, Write};
 use std::process::exit;
 use threadpool::ThreadPool;
 
