@@ -476,7 +476,7 @@ fn print_help(exe_name: &str) {
 }
 
 fn print_version(exe_name: &str) {
-    println!("{exe_name} v0.2 (2023/09/23)");
+    println!("{exe_name} v0.4 (2023/09/23)");
 }
 
 fn main() {
