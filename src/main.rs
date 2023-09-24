@@ -98,11 +98,11 @@ impl FastArchiverOptions {
             eprintln!("No end time was given");
             result = false;
         }
-        if self.ring == Ring::UNK {
+        if self.ring == Ring::Unk {
             eprintln!("No ring variable was given");
             result = false;
         }
-        return result;
+        result
     }
 }
 
@@ -111,7 +111,7 @@ fn get_fs(ring: Ring) -> Result<f64> {
     let port: u16 = match ring {
         Ring::R1 => 12001,
         Ring::R3 => 32001,
-        Ring::UNK => {
+        Ring::Unk => {
             unreachable!("Should be impossible to get here...");
         }
     };
@@ -163,7 +163,7 @@ fn get_archived_data(
             bpm_range = (1..201).map(|x| x.to_string()).collect();
             bpm_cmd_str = "1-200".to_string();
         }
-        Ring::UNK => unreachable!("Shouldn't be able to get here..."),
+        Ring::Unk => unreachable!("Shouldn't be able to get here..."),
     };
     println!(
         "{}: Number of BPMs in data = {}",

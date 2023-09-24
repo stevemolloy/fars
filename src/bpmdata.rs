@@ -3,17 +3,12 @@ use std::fmt::Write as fmt_wrt;
 use std::fs::File;
 use std::io::Write;
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Default, Debug, Clone)]
 pub enum Ring {
     R1,
     R3,
-    UNK,
-}
-
-impl Default for Ring {
-    fn default() -> Self {
-        Ring::UNK
-    }
+    #[default]
+    Unk,
 }
 
 #[derive(Debug, Default)]
@@ -29,25 +24,23 @@ impl BpmData {
     pub fn write_to_file(self, basename: &str) {
         let fname = format!("{}_{:03}.dat", basename, self.bpmnum);
         let mut file = File::create(fname).unwrap();
-        write!(
+        writeln!(
             file,
-            "\"# DATASET= tango://g-v-csdb-0.maxiv.lu.se:10000/{}/fa\"\n",
+            "\"# DATASET= tango://g-v-csdb-0.maxiv.lu.se:10000/{}/fa\"",
             self.get_bpm_name()
         )
         .unwrap();
-        write!(file, "# t, [x, y]\n").unwrap();
+        writeln!(file, "# t, [x, y]").unwrap();
 
         write!(file, "{}", self.output_string()).unwrap();
     }
 
     pub fn output_string(self) -> String {
         let capacity = self.ts.len() * 100;
-        let sum =
-            izip!(self.ts, self.x, self.y).fold(String::with_capacity(capacity), |mut acc, x| {
-                let _ = write!(acc, "{}, [{}, {}]\n", x.0, x.1, x.2);
-                acc
-            });
-        return sum;
+        izip!(self.ts, self.x, self.y).fold(String::with_capacity(capacity), |mut acc, x| {
+            let _ = writeln!(acc, "{}, [{}, {}]", x.0, x.1, x.2);
+            acc
+        })
     }
 
     pub fn get_bpm_name(&self) -> String {
