@@ -309,7 +309,10 @@ fn main() {
         }
     };
 
-    println!("{}: Writing to file.", Local::now().timestamp_millis());
+    println!(
+        "{}: Starting file-writing threads.",
+        Local::now().timestamp_millis()
+    );
     let pool = ThreadPool::new(7);
     for bpm in data {
         let basename = opts.file.clone();
@@ -318,7 +321,7 @@ fn main() {
         });
     }
     println!(
-        "{}: Waiting for file-write threads to finish. This can take some time for large datasets.",
+        "{}: Waiting for file-write threads to finish.",
         Local::now().timestamp_millis()
     );
     pool.join();
