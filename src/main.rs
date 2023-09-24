@@ -20,6 +20,16 @@ struct FastArchiverOptions {
     ring: Ring,
 }
 
+fn get_time_from_deque(arg: String) -> Option<DateTime<Local>> {
+    match Local.datetime_from_str(&arg, "%Y-%m-%dT%H:%M:%S%.f") {
+        Ok(dt) => Some(dt),
+        _ => {
+            eprintln!("Could not understand the `--start` flag; `{arg}`");
+            None
+        }
+    }
+}
+
 impl FastArchiverOptions {
     fn build_options(mut args_list: VecDeque<String>) -> Self {
         let mut opts: Self = Self::default();
@@ -27,35 +37,17 @@ impl FastArchiverOptions {
             let next_arg = args_list.pop_front().unwrap();
             match next_arg.as_str() {
                 "--start" => match args_list.pop_front() {
-                    Some(expr) => {
-                        let start_time =
-                            match Local.datetime_from_str(&expr, "%Y-%m-%dT%H:%M:%S%.f") {
-                                Ok(dt) => dt,
-                                _ => {
-                                    eprintln!("Could not understand the `--start` flag; `{expr}`");
-                                    exit(1);
-                                }
-                            };
-                        opts.start_time = Some(start_time);
-                    }
+                    Some(expr) => opts.start_time = get_time_from_deque(expr),
                     None => {
-                        eprintln!("Input parameters were not correct");
+                        eprintln!("Input parameters after `--start` are incorrect.");
+                        exit(1);
                     }
                 },
                 "--end" => match args_list.pop_front() {
-                    Some(expr) => {
-                        let end_time = match Local.datetime_from_str(&expr, "%Y-%m-%dT%H:%M:%S%.f")
-                        {
-                            Ok(dt) => dt,
-                            _ => {
-                                eprintln!("Could not understand the `--end` flag; `{expr}`");
-                                exit(1);
-                            }
-                        };
-                        opts.end_time = Some(end_time);
-                    }
+                    Some(expr) => opts.end_time = get_time_from_deque(expr),
                     None => {
-                        eprintln!("Input parameters were not correct");
+                        eprintln!("Input parameters after `--end` are incorrect.");
+                        exit(1);
                     }
                 },
                 "--ring" => match args_list.pop_front() {
@@ -63,20 +55,19 @@ impl FastArchiverOptions {
                         opts.ring = match expr.to_lowercase().as_str() {
                             "r1" => Ring::R1,
                             "r3" => Ring::R3,
-                            _ => {
-                                eprintln!("Could not understand `--ring` val ({})", expr);
-                                exit(1);
-                            }
+                            _ => Ring::Unk,
                         }
                     }
                     None => {
-                        eprintln!("Input parameters were not correct");
+                        eprintln!("Input parameters after `--ring` are incorrect.");
+                        exit(1);
                     }
                 },
                 "--file" => match args_list.pop_front() {
                     Some(expr) => opts.file = expr,
                     None => {
-                        eprintln!("Input parameters were not correct");
+                        eprintln!("Input parameters after `--file` are incorrect.");
+                        exit(1);
                     }
                 },
                 "--deci" => opts.deci = true,
