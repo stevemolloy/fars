@@ -1,32 +1,21 @@
+use crate::bpmdata::BpmData;
+use crate::bpmdata::Ring;
 use chrono::offset::TimeZone;
 use chrono::prelude::*;
 use chrono::Duration;
-use itertools::izip;
 use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::env::args;
-use std::fmt::Write as fmt_wrt;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::{Read, Result, Write};
 use std::process::exit;
 use threadpool::ThreadPool;
 
-#[derive(PartialEq, Debug, Clone)]
-enum Ring {
-    R1,
-    R3,
-    UNK,
-}
-
-impl Default for Ring {
-    fn default() -> Self {
-        Ring::UNK
-    }
-}
+mod bpmdata;
 
 #[derive(Default)]
-struct Options {
+struct FastArchiverOptions {
     start_time: Option<DateTime<Local>>,
     end_time: Option<DateTime<Local>>,
     deci: bool,
@@ -34,275 +23,87 @@ struct Options {
     ring: Ring,
 }
 
-#[derive(Debug, Default)]
-struct BpmData {
-    ring: Ring,
-    bpmnum: usize,
-    ts: Vec<String>,
-    x: Vec<i32>,
-    y: Vec<i32>,
-}
-
-impl BpmData {
-    fn output_string(self) -> String {
-        let capacity = self.ts.len() * 100;
-        let sum =
-            izip!(self.ts, self.x, self.y).fold(String::with_capacity(capacity), |mut acc, x| {
-                let _ = write!(acc, "{}, [{}, {}]\n", x.0, x.1, x.2);
-                acc
-            });
-        return sum;
+impl FastArchiverOptions {
+    fn build_options(mut args_list: VecDeque<String>) -> Self {
+        let mut opts: Self = Self::default();
+        while !args_list.is_empty() {
+            let next_arg = args_list.pop_front().unwrap();
+            match next_arg.as_str() {
+                "--start" => match args_list.pop_front() {
+                    Some(expr) => {
+                        let start_time =
+                            match Local.datetime_from_str(&expr, "%Y-%m-%dT%H:%M:%S%.f") {
+                                Ok(dt) => dt,
+                                _ => {
+                                    eprintln!("Could not understand the `--start` flag; `{expr}`");
+                                    exit(1);
+                                }
+                            };
+                        opts.start_time = Some(start_time);
+                    }
+                    None => {
+                        eprintln!("Input parameters were not correct");
+                    }
+                },
+                "--end" => match args_list.pop_front() {
+                    Some(expr) => {
+                        let end_time = match Local.datetime_from_str(&expr, "%Y-%m-%dT%H:%M:%S%.f")
+                        {
+                            Ok(dt) => dt,
+                            _ => {
+                                eprintln!("Could not understand the `--end` flag; `{expr}`");
+                                exit(1);
+                            }
+                        };
+                        opts.end_time = Some(end_time);
+                    }
+                    None => {
+                        eprintln!("Input parameters were not correct");
+                    }
+                },
+                "--ring" => match args_list.pop_front() {
+                    Some(expr) => {
+                        opts.ring = match expr.to_lowercase().as_str() {
+                            "r1" => Ring::R1,
+                            "r3" => Ring::R3,
+                            _ => {
+                                eprintln!("Could not understand `--ring` val ({})", expr);
+                                exit(1);
+                            }
+                        }
+                    }
+                    None => {
+                        eprintln!("Input parameters were not correct");
+                    }
+                },
+                "--file" => match args_list.pop_front() {
+                    Some(expr) => opts.file = expr,
+                    None => {
+                        eprintln!("Input parameters were not correct");
+                    }
+                },
+                "--deci" => opts.deci = true,
+                _ => {}
+            }
+        }
+        opts
     }
 
-    fn get_bpm_name(&self) -> String {
-        let r3_bpmname_list = vec![
-            "R3-301M1/DIA/BPM-01",
-            "R3-301M1/DIA/BPM-02",
-            "R3-301U1/DIA/BPM-01",
-            "R3-301U2/DIA/BPM-01",
-            "R3-301U3/DIA/BPM-01",
-            "R3-301U3/DIA/BPM-02",
-            "R3-301U4/DIA/BPM-01",
-            "R3-301U5/DIA/BPM-01",
-            "R3-301M2/DIA/BPM-01",
-            "R3-301M2/DIA/BPM-02",
-            "R3-302M1/DIA/BPM-01",
-            "R3-302M1/DIA/BPM-02",
-            "R3-302U1/DIA/BPM-01",
-            "R3-302U2/DIA/BPM-01",
-            "R3-302U3/DIA/BPM-01",
-            "R3-302U3/DIA/BPM-02",
-            "R3-302U4/DIA/BPM-01",
-            "R3-302U5/DIA/BPM-01",
-            "R3-302M2/DIA/BPM-01",
-            "R3-302M2/DIA/BPM-02",
-            "R3-303M1/DIA/BPM-01",
-            "R3-303M1/DIA/BPM-02",
-            "R3-303U1/DIA/BPM-01",
-            "R3-303U2/DIA/BPM-01",
-            "R3-303U3/DIA/BPM-01",
-            "R3-303U3/DIA/BPM-02",
-            "R3-303U4/DIA/BPM-01",
-            "R3-303U5/DIA/BPM-01",
-            "R3-303M2/DIA/BPM-01",
-            "R3-303M2/DIA/BPM-02",
-            "R3-304M1/DIA/BPM-01",
-            "R3-304M1/DIA/BPM-02",
-            "R3-304U1/DIA/BPM-01",
-            "R3-304U2/DIA/BPM-01",
-            "R3-304U3/DIA/BPM-01",
-            "R3-304U3/DIA/BPM-02",
-            "R3-304U4/DIA/BPM-01",
-            "R3-304U5/DIA/BPM-01",
-            "R3-304M2/DIA/BPM-01",
-            "R3-304M2/DIA/BPM-02",
-            "R3-305M1/DIA/BPM-01",
-            "R3-305M1/DIA/BPM-02",
-            "R3-305U1/DIA/BPM-01",
-            "R3-305U2/DIA/BPM-01",
-            "R3-305U3/DIA/BPM-01",
-            "R3-305U3/DIA/BPM-02",
-            "R3-305U4/DIA/BPM-01",
-            "R3-305U5/DIA/BPM-01",
-            "R3-305M2/DIA/BPM-01",
-            "R3-305M2/DIA/BPM-02",
-            "R3-306M1/DIA/BPM-01",
-            "R3-306M1/DIA/BPM-02",
-            "R3-306U1/DIA/BPM-01",
-            "R3-306U2/DIA/BPM-01",
-            "R3-306U3/DIA/BPM-01",
-            "R3-306U3/DIA/BPM-02",
-            "R3-306U4/DIA/BPM-01",
-            "R3-306U5/DIA/BPM-01",
-            "R3-306M2/DIA/BPM-01",
-            "R3-306M2/DIA/BPM-02",
-            "R3-307M1/DIA/BPM-01",
-            "R3-307M1/DIA/BPM-02",
-            "R3-307U1/DIA/BPM-01",
-            "R3-307U2/DIA/BPM-01",
-            "R3-307U3/DIA/BPM-01",
-            "R3-307U3/DIA/BPM-02",
-            "R3-307U4/DIA/BPM-01",
-            "R3-307U5/DIA/BPM-01",
-            "R3-307M2/DIA/BPM-01",
-            "R3-307M2/DIA/BPM-02",
-            "R3-308M1/DIA/BPM-01",
-            "R3-308M1/DIA/BPM-02",
-            "R3-308U1/DIA/BPM-01",
-            "R3-308U2/DIA/BPM-01",
-            "R3-308U3/DIA/BPM-01",
-            "R3-308U3/DIA/BPM-02",
-            "R3-308U4/DIA/BPM-01",
-            "R3-308U5/DIA/BPM-01",
-            "R3-308M2/DIA/BPM-01",
-            "R3-308M2/DIA/BPM-02",
-            "R3-309M1/DIA/BPM-01",
-            "R3-309M1/DIA/BPM-02",
-            "R3-309U1/DIA/BPM-01",
-            "R3-309U2/DIA/BPM-01",
-            "R3-309U3/DIA/BPM-01",
-            "R3-309U3/DIA/BPM-02",
-            "R3-309U4/DIA/BPM-01",
-            "R3-309U5/DIA/BPM-01",
-            "R3-309M2/DIA/BPM-01",
-            "R3-309M2/DIA/BPM-02",
-            "R3-310M1/DIA/BPM-01",
-            "R3-310M1/DIA/BPM-02",
-            "R3-310U1/DIA/BPM-01",
-            "R3-310U2/DIA/BPM-01",
-            "R3-310U3/DIA/BPM-01",
-            "R3-310U3/DIA/BPM-02",
-            "R3-310U4/DIA/BPM-01",
-            "R3-310U5/DIA/BPM-01",
-            "R3-310M2/DIA/BPM-01",
-            "R3-310M2/DIA/BPM-02",
-            "R3-311M1/DIA/BPM-01",
-            "R3-311M1/DIA/BPM-02",
-            "R3-311U1/DIA/BPM-01",
-            "R3-311U2/DIA/BPM-01",
-            "R3-311U3/DIA/BPM-01",
-            "R3-311U3/DIA/BPM-02",
-            "R3-311U4/DIA/BPM-01",
-            "R3-311U5/DIA/BPM-01",
-            "R3-311M2/DIA/BPM-01",
-            "R3-311M2/DIA/BPM-02",
-            "R3-312M1/DIA/BPM-01",
-            "R3-312M1/DIA/BPM-02",
-            "R3-312U1/DIA/BPM-01",
-            "R3-312U2/DIA/BPM-01",
-            "R3-312U3/DIA/BPM-01",
-            "R3-312U3/DIA/BPM-02",
-            "R3-312U4/DIA/BPM-01",
-            "R3-312U5/DIA/BPM-01",
-            "R3-312M2/DIA/BPM-01",
-            "R3-312M2/DIA/BPM-02",
-            "R3-313M1/DIA/BPM-01",
-            "R3-313M1/DIA/BPM-02",
-            "R3-313U1/DIA/BPM-01",
-            "R3-313U2/DIA/BPM-01",
-            "R3-313U3/DIA/BPM-01",
-            "R3-313U3/DIA/BPM-02",
-            "R3-313U4/DIA/BPM-01",
-            "R3-313U5/DIA/BPM-01",
-            "R3-313M2/DIA/BPM-01",
-            "R3-313M2/DIA/BPM-02",
-            "R3-314M1/DIA/BPM-01",
-            "R3-314M1/DIA/BPM-02",
-            "R3-314U1/DIA/BPM-01",
-            "R3-314U2/DIA/BPM-01",
-            "R3-314U3/DIA/BPM-01",
-            "R3-314U3/DIA/BPM-02",
-            "R3-314U4/DIA/BPM-01",
-            "R3-314U5/DIA/BPM-01",
-            "R3-314M2/DIA/BPM-01",
-            "R3-314M2/DIA/BPM-02",
-            "R3-315M1/DIA/BPM-01",
-            "R3-315M1/DIA/BPM-02",
-            "R3-315U1/DIA/BPM-01",
-            "R3-315U2/DIA/BPM-01",
-            "R3-315U3/DIA/BPM-01",
-            "R3-315U3/DIA/BPM-02",
-            "R3-315U4/DIA/BPM-01",
-            "R3-315U5/DIA/BPM-01",
-            "R3-315M2/DIA/BPM-01",
-            "R3-315M2/DIA/BPM-02",
-            "R3-316M1/DIA/BPM-01",
-            "R3-316M1/DIA/BPM-02",
-            "R3-316U1/DIA/BPM-01",
-            "R3-316U2/DIA/BPM-01",
-            "R3-316U3/DIA/BPM-01",
-            "R3-316U3/DIA/BPM-02",
-            "R3-316U4/DIA/BPM-01",
-            "R3-316U5/DIA/BPM-01",
-            "R3-316M2/DIA/BPM-01",
-            "R3-316M2/DIA/BPM-02",
-            "R3-317M1/DIA/BPM-01",
-            "R3-317M1/DIA/BPM-02",
-            "R3-317U1/DIA/BPM-01",
-            "R3-317U2/DIA/BPM-01",
-            "R3-317U3/DIA/BPM-01",
-            "R3-317U3/DIA/BPM-02",
-            "R3-317U4/DIA/BPM-01",
-            "R3-317U5/DIA/BPM-01",
-            "R3-317M2/DIA/BPM-01",
-            "R3-317M2/DIA/BPM-02",
-            "R3-318M1/DIA/BPM-01",
-            "R3-318M1/DIA/BPM-02",
-            "R3-318U1/DIA/BPM-01",
-            "R3-318U2/DIA/BPM-01",
-            "R3-318U3/DIA/BPM-01",
-            "R3-318U3/DIA/BPM-02",
-            "R3-318U4/DIA/BPM-01",
-            "R3-318U5/DIA/BPM-01",
-            "R3-318M2/DIA/BPM-01",
-            "R3-318M2/DIA/BPM-02",
-            "R3-319M1/DIA/BPM-01",
-            "R3-319M1/DIA/BPM-02",
-            "R3-319U1/DIA/BPM-01",
-            "R3-319U2/DIA/BPM-01",
-            "R3-319U3/DIA/BPM-01",
-            "R3-319U3/DIA/BPM-02",
-            "R3-319U4/DIA/BPM-01",
-            "R3-319U5/DIA/BPM-01",
-            "R3-319M2/DIA/BPM-01",
-            "R3-319M2/DIA/BPM-02",
-            "R3-320M1/DIA/BPM-01",
-            "R3-320M1/DIA/BPM-02",
-            "R3-320U1/DIA/BPM-01",
-            "R3-320U2/DIA/BPM-01",
-            "R3-320U3/DIA/BPM-01",
-            "R3-320U3/DIA/BPM-02",
-            "R3-320U4/DIA/BPM-01",
-            "R3-320U5/DIA/BPM-01",
-            "R3-320M2/DIA/BPM-01",
-            "R3-320M2/DIA/BPM-02",
-        ];
-        let r1_bpmname_list = vec![
-            "R1-101/DIA/BPM-01",
-            "R1-101/DIA/BPM-02",
-            "R1-101/DIA/BPM-03",
-            "R1-102/DIA/BPM-01",
-            "R1-102/DIA/BPM-02",
-            "R1-102/DIA/BPM-03",
-            "R1-103/DIA/BPM-01",
-            "R1-103/DIA/BPM-02",
-            "R1-103/DIA/BPM-03",
-            "R1-104/DIA/BPM-01",
-            "R1-104/DIA/BPM-02",
-            "R1-104/DIA/BPM-03",
-            "R1-105/DIA/BPM-01",
-            "R1-105/DIA/BPM-02",
-            "R1-105/DIA/BPM-03",
-            "R1-106/DIA/BPM-01",
-            "R1-106/DIA/BPM-02",
-            "R1-106/DIA/BPM-03",
-            "R1-107/DIA/BPM-01",
-            "R1-107/DIA/BPM-02",
-            "R1-107/DIA/BPM-03",
-            "R1-108/DIA/BPM-01",
-            "R1-108/DIA/BPM-02",
-            "R1-108/DIA/BPM-03",
-            "R1-109/DIA/BPM-01",
-            "R1-109/DIA/BPM-02",
-            "R1-109/DIA/BPM-03",
-            "R1-110/DIA/BPM-01",
-            "R1-110/DIA/BPM-02",
-            "R1-110/DIA/BPM-03",
-            "R1-111/DIA/BPM-01",
-            "R1-111/DIA/BPM-02",
-            "R1-111/DIA/BPM-03",
-            "R1-112/DIA/BPM-01",
-            "R1-112/DIA/BPM-02",
-            "R1-112/DIA/BPM-03",
-        ];
-
-        if self.ring == Ring::R3 {
-            r3_bpmname_list[self.bpmnum].to_string()
-        } else if self.ring == Ring::R1 {
-            r1_bpmname_list[self.bpmnum].to_string()
-        } else {
-            unreachable!("Shouldn't ever get here...");
+    fn check_options(&self) -> bool {
+        let mut result: bool = true;
+        if self.start_time.is_none() {
+            eprintln!("No start time was given");
+            result = false;
         }
+        if self.end_time.is_none() {
+            eprintln!("No end time was given");
+            result = false;
+        }
+        if self.ring == Ring::UNK {
+            eprintln!("No ring variable was given");
+            result = false;
+        }
+        return result;
     }
 }
 
@@ -475,7 +276,7 @@ fn get_archived_data(
 }
 
 fn print_help(exe_name: &str) {
-    println!("Acquires data from the Fast Archiver at MAXIV.\nUsage:");
+    println!("\nUsage:");
     print!("{exe_name} --ring R1|R3 ");
     print!("--start YYYY-MM-DDThh:mm:ss.xxx ");
     print!("--end YYYY-MM-DDThh:mm:ss.xxx ");
@@ -498,84 +299,11 @@ fn main() {
         exit(0);
     }
 
-    let mut opts: Options = Options::default();
+    let opts: FastArchiverOptions = FastArchiverOptions::build_options(args);
 
-    while !args.is_empty() {
-        let next_arg = args.pop_front().unwrap();
-        match next_arg.as_str() {
-            "--start" => match args.pop_front() {
-                Some(expr) => {
-                    let start_time = match Local.datetime_from_str(&expr, "%Y-%m-%dT%H:%M:%S%.f") {
-                        Ok(dt) => dt,
-                        _ => {
-                            eprintln!("Could not understand the `--start` flag; `{expr}`");
-                            exit(1);
-                        }
-                    };
-                    opts.start_time = Some(start_time);
-                }
-                None => {
-                    eprintln!("Input parameters were not correct");
-                    print_help(&exe_name);
-                }
-            },
-            "--end" => match args.pop_front() {
-                Some(expr) => {
-                    let end_time = match Local.datetime_from_str(&expr, "%Y-%m-%dT%H:%M:%S%.f") {
-                        Ok(dt) => dt,
-                        _ => {
-                            eprintln!("Could not understand the `--end` flag; `{expr}`");
-                            exit(1);
-                        }
-                    };
-                    opts.end_time = Some(end_time);
-                }
-                None => {
-                    eprintln!("Input parameters were not correct");
-                    print_help(&exe_name);
-                }
-            },
-            "--ring" => match args.pop_front() {
-                Some(expr) => {
-                    opts.ring = match expr.to_lowercase().as_str() {
-                        "r1" => Ring::R1,
-                        "r3" => Ring::R3,
-                        _ => {
-                            eprintln!("Could not understand `--ring` val ({})", expr);
-                            exit(1);
-                        }
-                    }
-                }
-                None => {
-                    eprintln!("Input parameters were not correct");
-                    print_help(&exe_name);
-                }
-            },
-            "--file" => match args.pop_front() {
-                Some(expr) => opts.file = expr,
-                None => {
-                    eprintln!("Input parameters were not correct");
-                    print_help(&exe_name);
-                }
-            },
-            "--deci" => opts.deci = true,
-            e => {
-                eprintln!("{e}");
-                exit(1);
-            }
-        }
-    }
-
-    if opts.start_time.is_none() {
-        eprintln!("No start time was given");
-        exit(1);
-    }
-    if opts.end_time.is_none() {
-        eprintln!("No end time was given");
-        exit(1);
-    }
-    if opts.ring == Ring::UNK {
-        eprintln!("No ring variable was given");
+    if !opts.check_options() {
+        eprintln!("Input parameters were not correct");
+        print_help(&exe_name);
         exit(1);
     }
 
