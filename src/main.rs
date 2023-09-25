@@ -11,6 +11,8 @@ use threadpool::ThreadPool;
 
 mod bpmdata;
 
+static VERSION_NUMBER: &str = "0.5";
+
 #[derive(Default)]
 struct FastArchiverOptions {
     start_time: Option<DateTime<Local>>,
@@ -270,7 +272,7 @@ fn print_help(exe_name: &str) {
 }
 
 fn print_version(exe_name: &str) {
-    println!("{exe_name} v0.4 (2023/09/23)");
+    println!("{exe_name} v{VERSION_NUMBER} (2023/09/23)");
 }
 
 fn main() {
