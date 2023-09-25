@@ -20,14 +20,16 @@ struct FastArchiverOptions {
     ring: Ring,
 }
 
-fn get_time_from_deque(arg: String) -> Option<DateTime<Local>> {
+fn get_time_from_string(arg: String) -> Option<DateTime<Local>> {
     match Local.datetime_from_str(&arg, "%Y-%m-%dT%H:%M:%S%.f") {
         Ok(dt) => Some(dt),
-        _ => {
-            eprintln!("Could not understand the `--start` flag; `{arg}`");
-            None
-        }
+        _ => None,
     }
+}
+
+fn print_error_and_exit(err: &str) {
+    eprintln!("{}", err);
+    exit(1);
 }
 
 impl FastArchiverOptions {
@@ -37,17 +39,15 @@ impl FastArchiverOptions {
             let next_arg = args_list.pop_front().unwrap();
             match next_arg.as_str() {
                 "--start" => match args_list.pop_front() {
-                    Some(expr) => opts.start_time = get_time_from_deque(expr),
+                    Some(expr) => opts.start_time = get_time_from_string(expr),
                     None => {
-                        eprintln!("Input parameters after `--start` are incorrect.");
-                        exit(1);
+                        print_error_and_exit("Input parameters after `--start` are incorrect.");
                     }
                 },
                 "--end" => match args_list.pop_front() {
-                    Some(expr) => opts.end_time = get_time_from_deque(expr),
+                    Some(expr) => opts.end_time = get_time_from_string(expr),
                     None => {
-                        eprintln!("Input parameters after `--end` are incorrect.");
-                        exit(1);
+                        print_error_and_exit("Input parameters after `--end` are incorrect.");
                     }
                 },
                 "--ring" => match args_list.pop_front() {
@@ -59,15 +59,13 @@ impl FastArchiverOptions {
                         }
                     }
                     None => {
-                        eprintln!("Input parameters after `--ring` are incorrect.");
-                        exit(1);
+                        print_error_and_exit("Input parameters after `--ring` are incorrect.");
                     }
                 },
                 "--file" => match args_list.pop_front() {
                     Some(expr) => opts.file = expr,
                     None => {
-                        eprintln!("Input parameters after `--file` are incorrect.");
-                        exit(1);
+                        print_error_and_exit("Input parameters after `--file` are incorrect.");
                     }
                 },
                 "--deci" => opts.deci = true,
