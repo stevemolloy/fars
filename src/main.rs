@@ -11,7 +11,7 @@ use threadpool::ThreadPool;
 
 mod bpmdata;
 
-static VERSION_NUMBER: &str = "0.5";
+static VERSION_NUMBER: &str = "1.0";
 
 #[derive(Default)]
 struct FastArchiverOptions {
@@ -20,6 +20,11 @@ struct FastArchiverOptions {
     deci: bool,
     file: String,
     ring: Ring,
+    find_dump: bool,
+}
+
+fn print_log_message(msg: &str) {
+    println!("{}: {}", Local::now().timestamp_millis(), msg);
 }
 
 fn get_time_from_string(arg: String) -> Option<DateTime<Local>> {
@@ -34,9 +39,15 @@ fn print_error_and_exit(err: &str) {
     exit(1);
 }
 
+fn root_mean_square(vec: &[i32]) -> f32 {
+    let sum_squares = vec.iter().fold(0, |acc, &x| acc + (x as i64).pow(2));
+    return ((sum_squares as f32) / (vec.len() as f32)).sqrt();
+}
+
 impl FastArchiverOptions {
     fn build_options(mut args_list: VecDeque<String>) -> Self {
         let mut opts: Self = Self::default();
+        opts.file = "bpm".to_string();
         while !args_list.is_empty() {
             let next_arg = args_list.pop_front().unwrap();
             match next_arg.as_str() {
@@ -71,6 +82,7 @@ impl FastArchiverOptions {
                     }
                 },
                 "--deci" => opts.deci = true,
+                "--find_dump" => opts.find_dump = true,
                 _ => {}
             }
         }
@@ -127,10 +139,7 @@ fn get_archived_data(
     end_dt: &DateTime<Local>,
     decimated: bool,
 ) -> Result<Vec<BpmData>> {
-    println!(
-        "{}: entered get_archived_data function",
-        Local::now().timestamp_millis()
-    );
+    print_log_message("Entered get_archived_data function");
     const HOST: &str = "fa";
     let port: u16;
     let bpm_range: Vec<String>;
@@ -154,11 +163,7 @@ fn get_archived_data(
         }
         Ring::Unk => unreachable!("Shouldn't be able to get here..."),
     };
-    println!(
-        "{}: Number of BPMs in data = {}",
-        Local::now().timestamp_millis(),
-        bpm_range.len()
-    );
+    print_log_message(format!("Number of BPMs in data = {}", bpm_range.len()).as_str());
     const CHKBYTESIZE: usize = 1;
     const HDRSIZE: usize = 8;
     const DATSIZE: usize = 4;
@@ -171,21 +176,13 @@ fn get_archived_data(
         "F".to_string()
     };
     let capacity_divisor = if decimated { 64 } else { 1 };
-    println!(
-        "{}: capacity_divisor: '{}'",
-        Local::now().timestamp_millis(),
-        capacity_divisor
-    );
+    print_log_message(format!("capacity_divisor: '{}'", capacity_divisor).as_str());
 
     let cmd_str = format!(
         "R{}M{}S{}.{:09}ES{}.{:09}N\n",
         acq_type, bpm_cmd_str, start_seconds, start_nanos, end_seconds, end_nanos,
     );
-    println!(
-        "{}: Sending the command: '{}'",
-        Local::now().timestamp_millis(),
-        cmd_str.trim()
-    );
+    print_log_message(format!("Sending the command: '{}'", cmd_str.trim()).as_str());
 
     let mut checkbyte = [0u8; CHKBYTESIZE];
     let mut header = [0u8; HDRSIZE];
@@ -195,22 +192,14 @@ fn get_archived_data(
     let mut stream = std::net::TcpStream::connect((HOST, port))?;
 
     stream.write_all(cmd_str.as_bytes())?;
-    println!(
-        "{}: Reading data from stream",
-        Local::now().timestamp_millis()
-    );
+    print_log_message("Reading data from stream");
     stream.read_exact(&mut checkbyte)?;
     stream.read_exact(&mut header)?;
     let mut reader = BufReader::new(&stream);
     let read_bytes = reader.read_to_end(&mut buf)?;
-    println!(
-        "{}: Read {} bytes",
-        Local::now().timestamp_millis(),
-        read_bytes
-    );
+    print_log_message(format!("Read {} bytes", read_bytes).as_str());
 
-    // println!("{:#?}", buf);
-    println!("{}: Parsing data", Local::now().timestamp_millis());
+    print_log_message("Parsing data");
     let mut values = Vec::new();
     for i in (0..buf.len()).step_by(DATSIZE) {
         let val = i32::from_ne_bytes((&buf[i..i + DATSIZE]).try_into().unwrap());
@@ -259,7 +248,7 @@ fn get_archived_data(
         datasets.push(d);
     }
 
-    println!("{}: Returning parsed data", Local::now().timestamp_millis());
+    print_log_message("Returning parsed data");
     Ok(datasets)
 }
 
@@ -295,24 +284,76 @@ fn main() {
         exit(1);
     }
 
-    let data = match get_archived_data(
-        opts.ring,
-        &opts.start_time.unwrap(),
-        &opts.end_time.unwrap(),
-        opts.deci,
-    ) {
-        Ok(reply) => reply,
-        _ => {
-            eprintln!("There was a problem getting data from the archiver.");
-            eprintln!("Are you within the MAXIV firewall?");
-            exit(1);
-        }
-    };
+    let data;
+    let initial_data;
 
-    println!(
-        "{}: Starting file-writing threads.",
-        Local::now().timestamp_millis()
-    );
+    if opts.find_dump {
+        initial_data = match get_archived_data(
+            opts.ring.clone(),
+            &opts.start_time.unwrap(),
+            &opts.end_time.unwrap(),
+            true,
+        ) {
+            Ok(reply) => reply,
+            _ => {
+                eprintln!("There was a problem getting data from the archiver.");
+                eprintln!("Are you within the MAXIV firewall?");
+                exit(1);
+            }
+        };
+        print_log_message("Starting file-writing threads.");
+        let pool = ThreadPool::new(7);
+        for bpm in initial_data.clone() {
+            pool.execute(move || {
+                bpm.write_to_file("sparse_data");
+            });
+        }
+        print_log_message("Waiting for file-write threads to finish.");
+        pool.join();
+        let data_length = initial_data[0].y.len();
+
+        let dump_index: usize = (0..data_length - 1000)
+            .map(|x| root_mean_square(&initial_data[0].y[x..(x + 1000)]))
+            .position(|x| x > 1_000_000.0)
+            .unwrap()
+            + 1000;
+        // println!("{:#?}", initial_data[0].ts[dump_index].clone());
+        let dump_time: DateTime<Local> = Local
+            .datetime_from_str(
+                &initial_data[0].ts[dump_index].clone(),
+                "%Y-%m-%d_%H:%M:%S%.f",
+            )
+            .unwrap();
+        print_log_message(format!("Found a beam dump at {}", dump_time).as_str());
+
+        let start_time = dump_time - Duration::milliseconds(4750);
+        let end_time = dump_time + Duration::milliseconds(250);
+        print_log_message(format!("Acquiring data from {} til {}", start_time, end_time).as_str());
+        data = match get_archived_data(opts.ring, &start_time, &end_time, opts.deci) {
+            Ok(reply) => reply,
+            _ => {
+                eprintln!("There was a problem getting data from the archiver.");
+                eprintln!("Are you within the MAXIV firewall?");
+                exit(1);
+            }
+        };
+    } else {
+        data = match get_archived_data(
+            opts.ring,
+            &opts.start_time.unwrap(),
+            &opts.end_time.unwrap(),
+            opts.deci,
+        ) {
+            Ok(reply) => reply,
+            _ => {
+                eprintln!("There was a problem getting data from the archiver.");
+                eprintln!("Are you within the MAXIV firewall?");
+                exit(1);
+            }
+        };
+    }
+
+    print_log_message("Starting file-writing threads.");
     let pool = ThreadPool::new(7);
     for bpm in data {
         let basename = opts.file.clone();
@@ -320,10 +361,7 @@ fn main() {
             bpm.write_to_file(&basename);
         });
     }
-    println!(
-        "{}: Waiting for file-write threads to finish.",
-        Local::now().timestamp_millis()
-    );
+    print_log_message("Waiting for file-write threads to finish.");
     pool.join();
-    println!("{}: Done!", Local::now().timestamp_millis());
+    print_log_message("Done!");
 }

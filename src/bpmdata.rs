@@ -11,7 +11,7 @@ pub enum Ring {
     Unk,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct BpmData {
     pub ring: Ring,
     pub bpmnum: usize,
