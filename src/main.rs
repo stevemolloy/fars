@@ -1,7 +1,9 @@
+use crate::bpmdata::get_bpm_number;
 use crate::bpmdata::{BpmData, Ring};
 use chrono::offset::TimeZone;
 use chrono::prelude::*;
 use chrono::Duration;
+use itertools::Itertools;
 use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::env::args;
@@ -11,7 +13,7 @@ use threadpool::ThreadPool;
 
 mod bpmdata;
 
-static VERSION_NUMBER: &str = "1.0";
+static VERSION_NUMBER: &str = "1.1";
 
 #[derive(Default)]
 struct FastArchiverOptions {
@@ -21,33 +23,13 @@ struct FastArchiverOptions {
     file: String,
     ring: Ring,
     find_dump: bool,
-}
-
-fn print_log_message(msg: &str) {
-    println!("{}: {}", Local::now().timestamp_millis(), msg);
-}
-
-fn get_time_from_string(arg: String) -> Option<DateTime<Local>> {
-    match Local.datetime_from_str(&arg, "%Y-%m-%dT%H:%M:%S%.f") {
-        Ok(dt) => Some(dt),
-        _ => None,
-    }
-}
-
-fn print_error_and_exit(err: &str) {
-    eprintln!("{}", err);
-    exit(1);
-}
-
-fn root_mean_square(vec: &[i32]) -> f32 {
-    let sum_squares = vec.iter().fold(0, |acc, &x| acc + (x as i64).pow(2));
-    return ((sum_squares as f32) / (vec.len() as f32)).sqrt();
+    bpm_search_terms: Vec<String>,
 }
 
 impl FastArchiverOptions {
     fn build_options(mut args_list: VecDeque<String>) -> Self {
         let mut opts: Self = Self::default();
-        opts.file = "bpm".to_string();
+        opts.file = "fa_data".to_string();
         while !args_list.is_empty() {
             let next_arg = args_list.pop_front().unwrap();
             match next_arg.as_str() {
@@ -83,10 +65,59 @@ impl FastArchiverOptions {
                 },
                 "--deci" => opts.deci = true,
                 "--find_dump" => opts.find_dump = true,
-                _ => {}
+                expr => {
+                    opts.bpm_search_terms.push(expr.to_string());
+                }
             }
         }
+        println!("{}", opts.log_string().as_str());
         opts
+    }
+
+    fn log_string(&self) -> String {
+        let timestamp = Local::now().timestamp_millis();
+        let start_str = format!("{}: Start time: {:?}", timestamp, self.start_time.unwrap());
+        let end_str = format!("{}: End time: {:?}", timestamp, self.end_time.unwrap());
+        let duration_str = format!(
+            "{}: Duration: {:?} ms",
+            timestamp,
+            (self.end_time.unwrap() - self.start_time.unwrap()).num_milliseconds()
+        );
+        let deci_str = if self.deci {
+            format!("{}: Returning decimated data", timestamp)
+        } else {
+            format!("{}: Returning full data.", timestamp)
+        };
+        let filename_str = format!("{}: Basename for files is '{}'", timestamp, self.file);
+        let ring_str = match self.ring {
+            Ring::R1 => format!("{}: Acquiring data for R1", timestamp),
+            Ring::R3 => format!("{}: Acquiring data for R3", timestamp),
+            Ring::Unk => format!("{}: Acquiring data for UNKNOWN", timestamp),
+        };
+        let find_dump_str = if self.find_dump {
+            format!("{}: Searching for dump events.", timestamp)
+        } else {
+            format!("{}: Not searching for dump events", timestamp)
+        };
+        let search_term_str = if self.bpm_search_terms.is_empty() {
+            format!("{}: Taking data from all BPMs", timestamp)
+        } else {
+            format!(
+                "{}: Searching for BPMs matching {:?}",
+                timestamp, self.bpm_search_terms
+            )
+        };
+        format!(
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n========================================",
+            start_str,
+            end_str,
+            duration_str,
+            deci_str,
+            filename_str,
+            ring_str,
+            find_dump_str,
+            search_term_str
+        )
     }
 
     fn check_options(&self) -> bool {
@@ -105,6 +136,27 @@ impl FastArchiverOptions {
         }
         result
     }
+}
+
+fn print_log_message(msg: &str) {
+    println!("{}: {}", Local::now().timestamp_millis(), msg);
+}
+
+fn get_time_from_string(arg: String) -> Option<DateTime<Local>> {
+    match Local.datetime_from_str(&arg, "%Y-%m-%dT%H:%M:%S%.f") {
+        Ok(dt) => Some(dt),
+        _ => None,
+    }
+}
+
+fn print_error_and_exit(err: &str) {
+    eprintln!("{}", err);
+    exit(1);
+}
+
+fn root_mean_square(vec: &[i32]) -> f32 {
+    let sum_squares = vec.iter().fold(0, |acc, &x| acc + (x as i64).pow(2));
+    return ((sum_squares as f32) / (vec.len() as f32)).sqrt();
 }
 
 fn get_fs(ring: Ring) -> Result<f64> {
@@ -137,12 +189,12 @@ fn get_archived_data(
     ring: Ring,
     start_dt: &DateTime<Local>,
     end_dt: &DateTime<Local>,
+    bpm_search_term: &Vec<String>,
     decimated: bool,
 ) -> Result<Vec<BpmData>> {
-    print_log_message("Entered get_archived_data function");
     const HOST: &str = "fa";
     let port: u16;
-    let bpm_range: Vec<String>;
+    let mut bpm_range: Vec<String>;
     let bpm_cmd_str: String;
 
     let start_seconds = start_dt.timestamp();
@@ -163,7 +215,6 @@ fn get_archived_data(
         }
         Ring::Unk => unreachable!("Shouldn't be able to get here..."),
     };
-    print_log_message(format!("Number of BPMs in data = {}", bpm_range.len()).as_str());
     const CHKBYTESIZE: usize = 1;
     const HDRSIZE: usize = 8;
     const DATSIZE: usize = 4;
@@ -178,9 +229,26 @@ fn get_archived_data(
     let capacity_divisor = if decimated { 64 } else { 1 };
     print_log_message(format!("capacity_divisor: '{}'", capacity_divisor).as_str());
 
+    let bpms: String = if !bpm_search_term.is_empty() {
+        print_log_message("Searching for BPMs");
+        match get_bpm_number(bpm_search_term, &ring) {
+            Some(ans) => {
+                bpm_range = ans.clone().iter().map(|x| x.to_string()).collect();
+                ans.iter().map(|x| x.to_string()).join(",")
+            }
+            None => {
+                eprintln!("No BPMs found matching {:?}", bpm_search_term);
+                exit(1);
+            }
+        }
+    } else {
+        bpm_cmd_str
+    };
+    print_log_message(format!("Number of BPMs to acquire = {}", bpm_range.len()).as_str());
+
     let cmd_str = format!(
         "R{}M{}S{}.{:09}ES{}.{:09}N\n",
-        acq_type, bpm_cmd_str, start_seconds, start_nanos, end_seconds, end_nanos,
+        acq_type, bpms, start_seconds, start_nanos, end_seconds, end_nanos,
     );
     print_log_message(format!("Sending the command: '{}'", cmd_str.trim()).as_str());
 
@@ -240,7 +308,7 @@ fn get_archived_data(
             .collect::<Vec<i32>>();
         let d = BpmData {
             ring: ring.clone(),
-            bpmnum: i,
+            bpmnum: bpm_range[i].parse::<usize>().unwrap() - 1,
             ts: ts.clone(),
             x: x_vals,
             y: y_vals,
@@ -292,6 +360,7 @@ fn main() {
             opts.ring.clone(),
             &opts.start_time.unwrap(),
             &opts.end_time.unwrap(),
+            &opts.bpm_search_terms,
             true,
         ) {
             Ok(reply) => reply,
@@ -329,7 +398,13 @@ fn main() {
         let start_time = dump_time - Duration::milliseconds(4750);
         let end_time = dump_time + Duration::milliseconds(250);
         print_log_message(format!("Acquiring data from {} til {}", start_time, end_time).as_str());
-        data = match get_archived_data(opts.ring, &start_time, &end_time, opts.deci) {
+        data = match get_archived_data(
+            opts.ring,
+            &start_time,
+            &end_time,
+            &opts.bpm_search_terms,
+            opts.deci,
+        ) {
             Ok(reply) => reply,
             _ => {
                 eprintln!("There was a problem getting data from the archiver.");
@@ -342,6 +417,7 @@ fn main() {
             opts.ring,
             &opts.start_time.unwrap(),
             &opts.end_time.unwrap(),
+            &opts.bpm_search_terms,
             opts.deci,
         ) {
             Ok(reply) => reply,
