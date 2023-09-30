@@ -258,11 +258,16 @@ fn get_archived_data(
     let mut buf = Vec::with_capacity((16222400 / capacity_divisor) * total_time as usize);
 
     let mut stream = std::net::TcpStream::connect((HOST, port))?;
-
     stream.write_all(cmd_str.as_bytes())?;
+
     print_log_message("Reading data from stream");
     stream.read_exact(&mut checkbyte)?;
+    print_log_message(format!("Checkbyte = {:?}", checkbyte).as_str());
+    if checkbyte[0] != 0 {
+        eprintln!("Note that checkbyte was non-zero. This indicates that the server detected an error in the response we gave it.")
+    }
     stream.read_exact(&mut header)?;
+    print_log_message(format!("Header = {:?}", header).as_str());
     let mut reader = BufReader::new(&stream);
     let read_bytes = reader.read_to_end(&mut buf)?;
     print_log_message(format!("Read {} bytes", read_bytes).as_str());
@@ -408,7 +413,9 @@ fn main() {
             Ok(reply) => reply,
             _ => {
                 eprintln!("There was a problem getting data from the archiver.");
-                eprintln!("Are you within the MAXIV firewall?");
+                eprintln!("This can occur if you are not inside the MAX-IV firewall.");
+                eprintln!("It can also occur if your regex finds too many BPMs. This is a bug that is being");
+                eprintln!("investigated, but for the mean time just acquire all BPMs by not using a regex.");
                 exit(1);
             }
         };
@@ -423,7 +430,9 @@ fn main() {
             Ok(reply) => reply,
             _ => {
                 eprintln!("There was a problem getting data from the archiver.");
-                eprintln!("Are you within the MAXIV firewall?");
+                eprintln!("This can occur if you are not inside the MAX-IV firewall.");
+                eprintln!("It can also occur if your regex finds too many BPMs. This is a bug that is being");
+                eprintln!("investigated, but for the mean time just acquire all BPMs by not using a regex.");
                 exit(1);
             }
         };
