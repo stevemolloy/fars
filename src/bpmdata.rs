@@ -247,7 +247,6 @@ const R1_BPMNAME_LIST: &[&str] = &[
 ];
 
 pub fn get_bpm_number(searchterms: &Vec<String>, ring: &Ring) -> Option<Vec<usize>> {
-    println!("Inside 'get_bpm_number' function");
     let mut retval: Vec<usize> = vec![];
 
     for term in searchterms {
@@ -265,7 +264,6 @@ pub fn get_bpm_number(searchterms: &Vec<String>, ring: &Ring) -> Option<Vec<usiz
 }
 
 fn get_bpm_number_individual_term(searchterm: &str, ring: &Ring) -> Option<Vec<usize>> {
-    println!("Inside 'get_bpm_number_individual_term' function");
     let re = Regex::new(format!("^{}$", searchterm).as_str()).unwrap();
 
     match *ring {
