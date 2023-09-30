@@ -251,7 +251,7 @@ pub fn get_bpm_number(searchterms: &Vec<String>, ring: &Ring) -> Option<Vec<usiz
     let mut retval: Vec<usize> = vec![];
 
     for term in searchterms {
-        match get_bpm_number_individual_term(term, ring) {
+        match get_bpm_number_individual_term(term.to_uppercase().as_str(), ring) {
             Some(mut ans) => retval.append(&mut ans),
             None => {}
         }
