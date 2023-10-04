@@ -264,7 +264,23 @@ pub fn get_bpm_number(searchterms: &Vec<String>, ring: &Ring) -> Option<Vec<usiz
 }
 
 fn get_bpm_number_individual_term(searchterm: &str, ring: &Ring) -> Option<Vec<usize>> {
-    let re = Regex::new(format!("^{}$", searchterm).as_str()).unwrap();
+    let re = match searchterm {
+        "MIK" => Regex::new("^(R3-301M2/DIA/BPM-02|R3-302M1/DIA/BPM-01)$").unwrap(),
+        "NANOMAX" => Regex::new("^(R3-302M2/DIA/BPM-02|R3-303M1/DIA/BPM-01)$").unwrap(),
+        "DANMAX" => Regex::new("^(R3-303M2/DIA/BPM-02|R3-304M1/DIA/BPM-01)$").unwrap(),
+        "BALDER" => Regex::new("^(R3-307M2/DIA/BPM-02|R3-308M1/DIA/BPM-01)$").unwrap(),
+        "COSAXS" => Regex::new("^(R3-309M2/DIA/BPM-02|R3-310M1/DIA/BPM-01)$").unwrap(),
+        "BIOMAX" => Regex::new("^(R3-310M2/DIA/BPM-02|R3-311M1/DIA/BPM-01)$").unwrap(),
+        "VERITAS" => Regex::new("^(R3-315M2/DIA/BPM-02|R3-316M1/DIA/BPM-01)$").unwrap(),
+        "HIPPIE" => Regex::new("^(R3-316M2/DIA/BPM-02|R3-317M1/DIA/BPM-01)$").unwrap(),
+        "SOFTIMAX" => Regex::new("^(R3-317M2/DIA/BPM-02|R3-318M1/DIA/BPM-01)$").unwrap(),
+        "FLEXPES" => Regex::new("^(R1-106/DIA/BPM-03|R1-107/DIA/BPM-01)$").unwrap(),
+        "SPECIES" => Regex::new("^(R1-107/DIA/BPM-03|R1-108/DIA/BPM-01)$").unwrap(),
+        "BLOCH" => Regex::new("^(R1-109/DIA/BPM-03|R1-110/DIA/BPM-01)$").unwrap(),
+        "MAXPEEM" => Regex::new("^(R1-110/DIA/BPM-03|R1-111/DIA/BPM-01)$").unwrap(),
+        "FINEST" => Regex::new("^(R1-111/DIA/BPM-03|R1-112/DIA/BPM-01)$").unwrap(),
+        _ => Regex::new(format!("^{}$", searchterm).as_str()).unwrap(),
+    };
 
     match *ring {
         Ring::R1 => Some(

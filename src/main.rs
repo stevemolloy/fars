@@ -13,7 +13,7 @@ use threadpool::ThreadPool;
 
 mod bpmdata;
 
-static VERSION_NUMBER: &str = "1.1.1";
+static VERSION_NUMBER: &str = "1.2";
 
 #[derive(Default)]
 struct FastArchiverOptions {
