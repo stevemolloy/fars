@@ -30,7 +30,7 @@ Providing a string as a cli parameter will cause the list of BPMs for the ring i
 In addition, using the name of a MAXIV beamline as input (e.g., `danmax`, `maxpeem`, `mik`, etc.) will provide data for the two BPMs that flank the ID associated with that beamline.
 
 ## Changing the behaviour
-The flag `--find_dump` alers the behaviour of this tool quite significantly.
+The flag `--find_dump` alters the behaviour of this tool quite significantly.
 
 When this flag is provided, the code will search between the `start` and `end` times provided for a dump.  The data that this call provides will be for all BPMs for the ring in question, and span a period that is from 9 seconds before the beam dump and 1 second afterwards.
 
