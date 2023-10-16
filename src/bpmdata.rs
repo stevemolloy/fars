@@ -340,7 +340,7 @@ impl BpmData {
             get_bpm_name(self.bpmnum, &self.ring).unwrap()
         )
         .unwrap();
-        writeln!(file, "# t, [x, y]").unwrap();
+        writeln!(file, "# t [x, y]").unwrap();
 
         write!(file, "{}", self.output_string()).unwrap();
     }
@@ -348,7 +348,7 @@ impl BpmData {
     pub fn output_string(self) -> String {
         let capacity = self.ts.len() * 100;
         izip!(self.ts, self.x, self.y).fold(String::with_capacity(capacity), |mut acc, x| {
-            let _ = writeln!(acc, "{}, [{}, {}]", x.0, x.1, x.2);
+            let _ = writeln!(acc, "{} [{}, {}]", x.0, x.1, x.2);
             acc
         })
     }
