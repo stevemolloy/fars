@@ -70,7 +70,6 @@ impl FastArchiverOptions {
                 }
             }
         }
-        println!("{}", opts.log_string().as_str());
         opts
     }
 
@@ -160,7 +159,14 @@ fn root_mean_square(vec: &[i32]) -> f32 {
 }
 
 fn get_fs(ring: Ring) -> Result<f64> {
-    const HOST: &str = "fa";
+    // const HOST: &str = "fa";
+    let host: &str = match ring {
+	Ring::R1 => "fa18",
+	Ring::R3 => "fa17",
+	Ring::Unk => {
+            unreachable!("Should be impossible to get here...");
+	}
+    };
     let port: u16 = match ring {
         Ring::R1 => 12001,
         Ring::R3 => 32001,
@@ -172,7 +178,7 @@ fn get_fs(ring: Ring) -> Result<f64> {
 
     let mut buf = Vec::new();
 
-    let mut stream = std::net::TcpStream::connect((HOST, port))?;
+    let mut stream = std::net::TcpStream::connect((host, port))?;
 
     stream.write_all(cmd.as_bytes())?;
     stream.read_to_end(&mut buf)?;
@@ -192,7 +198,7 @@ fn get_archived_data(
     bpm_search_term: &Vec<String>,
     decimated: bool,
 ) -> Result<Vec<BpmData>> {
-    const HOST: &str = "fa";
+    let host: &str;
     let port: u16;
     let mut bpm_range: Vec<String>;
     let bpm_cmd_str: String;
@@ -204,11 +210,13 @@ fn get_archived_data(
 
     match ring {
         Ring::R1 => {
+	    host = "fa18";
             port = 12001;
             bpm_range = (1..37).map(|x| x.to_string()).collect();
             bpm_cmd_str = "1-36".to_string();
         }
         Ring::R3 => {
+	    host = "fa17";
             port = 32001;
             bpm_range = (1..201).map(|x| x.to_string()).collect();
             bpm_cmd_str = "1-200".to_string();
@@ -257,7 +265,7 @@ fn get_archived_data(
     let total_time = (end_dt.timestamp_nanos() - start_dt.timestamp_nanos()) / 1_000_000_000;
     let mut buf = Vec::with_capacity((16222400 / capacity_divisor) * total_time as usize);
 
-    let mut stream = std::net::TcpStream::connect((HOST, port))?;
+    let mut stream = std::net::TcpStream::connect((host, port))?;
     stream.write_all(cmd_str.as_bytes())?;
 
     print_log_message("Reading data from stream");
@@ -356,6 +364,8 @@ fn main() {
         print_help(&exe_name);
         exit(1);
     }
+
+    opts.log_string();
 
     let data;
     let initial_data;
