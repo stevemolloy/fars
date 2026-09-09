@@ -258,14 +258,15 @@ fn get_archived_data(
         "R{}M{}S{}.{:09}ES{}.{:09}N\n",
         acq_type, bpms, start_seconds, start_nanos, end_seconds, end_nanos,
     );
-    print_log_message(format!("Sending the command: '{}'", cmd_str.trim()).as_str());
 
     let mut checkbyte = [0u8; CHKBYTESIZE];
     let mut header = [0u8; HDRSIZE];
     let total_time = (end_dt.timestamp_nanos() - start_dt.timestamp_nanos()) / 1_000_000_000;
     let mut buf = Vec::with_capacity((16222400 / capacity_divisor) * total_time as usize);
 
+    print_log_message(format!("Connecting to {}:{}", host, port).as_str());
     let mut stream = std::net::TcpStream::connect((host, port))?;
+    print_log_message(format!("Sending the command: '{}'", cmd_str.trim()).as_str());
     stream.write_all(cmd_str.as_bytes())?;
 
     print_log_message("Reading data from stream");
